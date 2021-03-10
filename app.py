@@ -1,7 +1,6 @@
 import class_tinkoff_invest
 import pprint
 
-
 ti = class_tinkoff_invest.TinkofInvest()
 
 ti.restUrl = 'https://api-invest.tinkoff.ru/openapi/'

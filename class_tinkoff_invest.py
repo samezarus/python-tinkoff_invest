@@ -20,20 +20,41 @@ def dtToUrlFormat(dtStr):
     return result
 
 
-class TinkofInvest():
+class TinkofInvest:
     def __init__(self):
         self.restUrl = ''
         self.apiToken = ''
         self.headers = {'Authorization': 'Bearer ' + self.apiToken}
         self.commission = 0.0 # Комисиия при покупке/продаже в %
+
         self.sqliteConnection = None
+        self.set_sqlite_connection('tinkofInvest.db')
+        self.sqlite_ctreate_table_tiCandles()
 
 
     def set_sqlite_connection(self, dbFileName):
         try:
-            self.sqliteConnection = sqlite3.connect('tinkofInvest.db')
+            self.sqliteConnection = sqlite3.connect(dbFileName)
         except:
             pass
+
+
+    def sqlite_ctreate_table_tiCandles(self):
+        if self.sqliteConnection != None:
+            sqliteCursor = self.sqliteConnection.cursor()
+            sqliteCursor.execute(''
+                'create table if not exists tiCandles'
+                '('
+	                'candlesID int PRIMARY KEY,'
+	                'figi text,'
+	                'open double,'
+	                'close double,'
+	                'height double,'
+	                'low double,'
+	                'volume int,'
+	                'time text'
+                ')')
+            self.sqliteConnection.commit()
 
 
     def get_data(self, dataPref):
