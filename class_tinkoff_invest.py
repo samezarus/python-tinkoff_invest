@@ -3,6 +3,8 @@ import requests
 from datetime import datetime, timedelta
 from pytz import timezone
 import sqlite3
+import hashlib
+
 
 def dtToUrlFormat(dtStr):
     """
@@ -19,8 +21,43 @@ def dtToUrlFormat(dtStr):
 
     return result
 
+class TiCandle:
+    """
+    Класс свечи
+    """
+    def __init__(self):
+        hash = "" # хэш записи
+        figi = "" # идентификатор инструмента
+        o = 0.0   # цена при открытии (open)
+        c = 0.0   # цена при закрытии (close)
+        h = 0.0   # максимальная цена (height)
+        l = 0.0   # минимальная цена (low)
+        v = 0     # объём (volume)
+        time = "" # время
+
+    def set_hash(self):
+        s = self.figi + self.o + self.c + self.h + self.l + self.v + self.time
+        m = hashlib.md5()
+        m.update(s)
+        self.hash = m.hexdigest()
+        return self.hash
+
+    def insert_to_sqlite(self, sqliteConnection, tableName):
+        self.set_hash()
+
+        query = f'select hash from {tableName} where hash={self.hash}'
+        sqliteCursor = sqliteConnection.cursor()
+        sqliteCursor.execute(query)
+
+        rows = sqliteCursor.fetchone()
+
+        if len(rows) == 0:
+            query = f'select hash from {tableName} where hash={self.hash}'
 
 class TinkofInvest:
+    """
+    Основной класс для работы с инвестициями
+    """
     def __init__(self):
         self.restUrl = ''
         self.apiToken = ''
@@ -29,7 +66,7 @@ class TinkofInvest:
 
         self.sqliteConnection = None
         self.set_sqlite_connection('tinkofInvest.db')
-        self.sqlite_ctreate_table_tiCandles()
+        self.sqlite_ctreate_tiCandles()
 
 
     def set_sqlite_connection(self, dbFileName):
@@ -39,13 +76,14 @@ class TinkofInvest:
             pass
 
 
-    def sqlite_ctreate_table_tiCandles(self):
+    def sqlite_ctreate_tiCandles(self):
         if self.sqliteConnection != None:
             sqliteCursor = self.sqliteConnection.cursor()
             sqliteCursor.execute(''
                 'create table if not exists tiCandles'
                 '('
-	                'candlesID int PRIMARY KEY,'
+	                'candlesID INTEGER PRIMARY KEY AUTOINCREMENT,'
+	                'hash text,'
 	                'figi text,'
 	                'open double,'
 	                'close double,'
@@ -55,6 +93,11 @@ class TinkofInvest:
 	                'time text'
                 ')')
             self.sqliteConnection.commit()
+
+
+    def sqlite_isert_in_tiCandles(self, data):
+
+        hash = ''
 
 
     def get_data(self, dataPref):
