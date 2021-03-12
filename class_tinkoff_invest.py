@@ -21,38 +21,57 @@ def dtToUrlFormat(dtStr):
 
     return result
 
+
 class TiCandle:
     """
     Класс свечи
     """
     def __init__(self):
-        hash = "" # хэш записи
-        figi = "" # идентификатор инструмента
-        o = 0.0   # цена при открытии (open)
-        c = 0.0   # цена при закрытии (close)
-        h = 0.0   # максимальная цена (height)
-        l = 0.0   # минимальная цена (low)
-        v = 0     # объём (volume)
-        time = "" # время
+        self.hash = "" # хэш записи
+        self.figi = "" # идентификатор инструмента
+        self.o = 0.0   # цена при открытии (open)
+        self.c = 0.0   # цена при закрытии (close)
+        self.h = 0.0   # максимальная цена (height)
+        self.l = 0.0   # минимальная цена (low)
+        self.v = 0     # объём (volume)
+        self.time = "" # время
+
 
     def set_hash(self):
-        s = self.figi + self.o + self.c + self.h + self.l + self.v + self.time
+        s = self.figi + str(self.o) + str(self.c) + str(self.h) + str(self.l) + str(self.v) + self.time
         m = hashlib.md5()
-        m.update(s)
-        self.hash = m.hexdigest()
+        m.update(s.encode())
+        self.hash = str(m.hexdigest())
         return self.hash
 
-    def insert_to_sqlite(self, sqliteConnection, tableName):
+
+    def insert_to_sqlite(self, sqliteConnection):
         self.set_hash()
 
-        query = f'select hash from {tableName} where hash={self.hash}'
+        tableName = 'tiCandles'
+        query = f"select hash from {tableName} where hash='{self.hash}'"
         sqliteCursor = sqliteConnection.cursor()
         sqliteCursor.execute(query)
 
         rows = sqliteCursor.fetchone()
 
         if len(rows) == 0:
-            query = f'select hash from {tableName} where hash={self.hash}'
+            query = f'insert into {tableName}' \
+                '(hash, figi, open, close, height, low, volume, time)' \
+                'VALUES(' \
+                f'{self.hash},' \
+                f'{self.figi},' \
+                f'{self.o},' \
+                f'{self.c},' \
+                f'{self.h},' \
+                f'{self.l},' \
+                f'{self.c},' \
+                f'{self.time},' \
+                ')'
+            sqliteCursor.execute(query)
+            sqliteConnection.commit()
+
+
 
 class TinkofInvest:
     """
@@ -68,6 +87,16 @@ class TinkofInvest:
         self.set_sqlite_connection('tinkofInvest.db')
         self.sqlite_ctreate_tiCandles()
 
+        candle = TiCandle()
+        candle.hash = ''
+        candle.o = 12.1
+        candle.c = 12.5
+        candle.h = 12.8
+        candle.l = 11.9
+        candle.v = 13400
+        candle.time = '2021-03-12T15:13:02'
+
+        candle.insert_to_sqlite(self.sqliteConnection)
 
     def set_sqlite_connection(self, dbFileName):
         try:
@@ -95,7 +124,7 @@ class TinkofInvest:
             self.sqliteConnection.commit()
 
 
-    def sqlite_isert_in_tiCandles(self, data):
+    def sqlite_isert_in_tiCandles(self, candle):
 
         hash = ''
 
