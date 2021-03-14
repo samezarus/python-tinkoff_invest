@@ -45,32 +45,35 @@ class TiCandle:
         return self.hash
 
 
-    def insert_to_sqlite(self, sqliteConnection):
+    def insert_to_sqlite(self, dbFileName):
         self.set_hash()
 
-        tableName = 'tiCandles'
-        query = f"select hash from {tableName} where hash='{self.hash}'"
+        sqliteConnection = sqlite3.connect(dbFileName)
         sqliteCursor = sqliteConnection.cursor()
-        sqliteCursor.execute(query)
 
-        rows = sqliteCursor.fetchone()
+        tableName = 'tiCandles'
+
+        query = f"select hash from {tableName} where hash='{self.hash}'"
+        sqliteCursor.execute(query)
+        rows = sqliteCursor.fetchall()
 
         if len(rows) == 0:
             query = f'insert into {tableName}' \
-                '(hash, figi, open, close, height, low, volume, time)' \
+                '(hash, figi, open, close, height, low, volume, time) ' \
                 'VALUES(' \
-                f'{self.hash},' \
-                f'{self.figi},' \
-                f'{self.o},' \
-                f'{self.c},' \
-                f'{self.h},' \
-                f'{self.l},' \
-                f'{self.c},' \
-                f'{self.time},' \
+                f"'{self.hash}', " \
+                f"'{self.figi}', " \
+                f'{self.o}, ' \
+                f'{self.c}, ' \
+                f'{self.h}, ' \
+                f'{self.l}, ' \
+                f'{self.c}, ' \
+                f"'{self.time}'" \
                 ')'
             sqliteCursor.execute(query)
             sqliteConnection.commit()
 
+        sqliteConnection.close()
 
 
 class TinkofInvest:
@@ -83,45 +86,39 @@ class TinkofInvest:
         self.headers = {'Authorization': 'Bearer ' + self.apiToken}
         self.commission = 0.0 # Комисиия при покупке/продаже в %
 
-        self.sqliteConnection = None
-        self.set_sqlite_connection('tinkofInvest.db')
+        self.dbFileName = ''
         self.sqlite_ctreate_tiCandles()
 
         candle = TiCandle()
         candle.hash = ''
+        candle.figi = 'A12CF'
         candle.o = 12.1
         candle.c = 12.5
         candle.h = 12.8
         candle.l = 11.9
         candle.v = 13400
         candle.time = '2021-03-12T15:13:02'
-
-        candle.insert_to_sqlite(self.sqliteConnection)
-
-    def set_sqlite_connection(self, dbFileName):
-        try:
-            self.sqliteConnection = sqlite3.connect(dbFileName)
-        except:
-            pass
+        candle.insert_to_sqlite(self.dbFileName)
 
 
     def sqlite_ctreate_tiCandles(self):
-        if self.sqliteConnection != None:
-            sqliteCursor = self.sqliteConnection.cursor()
-            sqliteCursor.execute(''
-                'create table if not exists tiCandles'
-                '('
-	                'candlesID INTEGER PRIMARY KEY AUTOINCREMENT,'
-	                'hash text,'
-	                'figi text,'
-	                'open double,'
-	                'close double,'
-	                'height double,'
-	                'low double,'
-	                'volume int,'
-	                'time text'
-                ')')
-            self.sqliteConnection.commit()
+        query = 'create table if not exists tiCandles' \
+            '(' \
+	        'candlesID INTEGER PRIMARY KEY AUTOINCREMENT,' \
+	        'hash text,' \
+	        'figi text,' \
+	        'open double,' \
+	        'close double,' \
+	        'height double,' \
+	        'low double,' \
+	        'volume int,' \
+	        'time text' \
+            ')'
+        sqliteConnection = sqlite3.connect(self.dbFileName)
+        sqliteCursor = sqliteConnection.cursor()
+        sqliteCursor.execute(query)
+        sqliteConnection.commit()
+        sqliteConnection.close()
 
 
     def sqlite_isert_in_tiCandles(self, candle):
