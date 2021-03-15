@@ -80,15 +80,18 @@ class TinkofInvest:
     """
     Основной класс для работы с инвестициями
     """
-    def __init__(self):
+    def __init__(self, dbFileName):
+        self.dbFileName = dbFileName
         self.restUrl = ''
         self.apiToken = ''
         self.headers = {'Authorization': 'Bearer ' + self.apiToken}
         self.commission = 0.0 # Комисиия при покупке/продаже в %
 
-        self.dbFileName = ''
+
+        self.sqlite_ctreate_tiFigis()
         self.sqlite_ctreate_tiCandles()
 
+        """
         candle = TiCandle()
         candle.hash = ''
         candle.figi = 'A12CF'
@@ -99,26 +102,45 @@ class TinkofInvest:
         candle.v = 13400
         candle.time = '2021-03-12T15:13:02'
         candle.insert_to_sqlite(self.dbFileName)
+        """
 
 
-    def sqlite_ctreate_tiCandles(self):
-        query = 'create table if not exists tiCandles' \
-            '(' \
-	        'candlesID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-	        'hash text,' \
-	        'figi text,' \
-	        'open double,' \
-	        'close double,' \
-	        'height double,' \
-	        'low double,' \
-	        'volume int,' \
-	        'time text' \
-            ')'
+    def sqlite_ctreate_table(self, query):
         sqliteConnection = sqlite3.connect(self.dbFileName)
         sqliteCursor = sqliteConnection.cursor()
         sqliteCursor.execute(query)
         sqliteConnection.commit()
         sqliteConnection.close()
+
+
+    def sqlite_ctreate_tiCandles(self):
+        query = 'create table if not exists tiCandles' \
+            '(' \
+            'candlesID INTEGER PRIMARY KEY AUTOINCREMENT,' \
+            'figiID INTEGER,' \
+            'hash text,' \
+            'open double,' \
+            'close double,' \
+            'height double,' \
+            'low double,' \
+            'volume int,' \
+            'time text,' \
+            'FOREIGN KEY(figiID) REFERENCES tiFigis(figiID)'\
+            ')'
+
+        self.sqlite_ctreate_table(query)
+
+
+    def sqlite_ctreate_tiFigis(self):
+        query = 'create table if not exists tiFigis' \
+            '(' \
+	        'figiID INTEGER PRIMARY KEY AUTOINCREMENT,' \
+	        'figi text,' \
+	        'name text' \
+            'dayAgo' \
+            ')'
+
+        self.sqlite_ctreate_table(query)
 
 
     def sqlite_isert_in_tiCandles(self, candle):
@@ -192,8 +214,11 @@ class TinkofInvest:
         now = datetime.now(tz=timezone('Europe/Moscow'))
         unNow = now - timedelta(days=daysAgo)
 
-        return self.get_candles(figi, unNow, now, 'day')
+        result = self.get_candles(figi, unNow, now, 'day')
+        return result
 
 
     def candles_days_ago_to_sqlite(self, figi, daysAgo):
-        pass
+        l = self.get_candles_days_ago(figi, daysAgo)
+        if len(l) > 0:
+            pass
