@@ -22,6 +22,29 @@ def dtToUrlFormat(dtStr):
     return result
 
 
+def sqlite_result(dbFileName, query):
+    sqliteConnection = sqlite3.connect(dbFileName)
+    sqliteCursor = sqliteConnection.cursor()
+    sqliteCursor.execute(query)
+    return sqliteCursor.fetchall()
+
+
+def sqlite_commit(dbFileName, query):
+    sqliteConnection = sqlite3.connect(dbFileName)
+    sqliteCursor = sqliteConnection.cursor()
+    sqliteCursor.execute(query)
+    sqliteConnection.commit()
+    sqliteConnection.close()
+
+
+def chek_key(key, struc):
+    try:
+        if key in struc:
+           return True
+    except:
+        return False
+
+
 class TiCandle:
     """
     Класс свечи
@@ -34,7 +57,7 @@ class TiCandle:
         self.h = 0.0   # максимальная цена (height)
         self.l = 0.0   # минимальная цена (low)
         self.v = 0     # объём (volume)
-        self.time = "" # время
+        self.time = '' # время
 
 
     def set_hash(self):
@@ -52,7 +75,6 @@ class TiCandle:
         sqliteCursor = sqliteConnection.cursor()
 
         tableName = 'tiCandles'
-
         query = f"select hash from {tableName} where hash='{self.hash}'"
         sqliteCursor.execute(query)
         rows = sqliteCursor.fetchall()
@@ -76,20 +98,94 @@ class TiCandle:
         sqliteConnection.close()
 
 
+class TiStock:
+    def __init__(self, dbFileName):
+        self.tableName = 'tiStock'
+        self.dbFileName = dbFileName
+        self.stockID = 0
+        self.figi = ''
+        self.ticker = ''
+        self.isin = ''
+        self.minPriceIncrement = 0.0
+        self.lot = 0
+        self.currency = ''
+        self.name = ''
+        self.type_ = ''
+
+    def sqlite_ctreate_table(self):
+        query = f'create table if not exists {self.tableName}' \
+            '(' \
+            'stockID INTEGER PRIMARY KEY AUTOINCREMENT,' \
+            'figi text,' \
+            'ticker text,' \
+            'isin text,' \
+            'minPriceIncrement doble,' \
+            'lot INTEGER,' \
+            'currency text,' \
+            'name text,' \
+            'type text' \
+            ')'
+
+        sqlite_commit(self.dbFileName, query)
+
+    def sqlite_insert(self):
+        query = f"select figi from {self.tableName} where figi='{self.figi}'"
+        rows = sqlite_result(self.dbFileName, query)
+
+        if len(rows) == 0:
+            self.name = self.name.replace('\'', '')
+
+            query = f'insert into {self.tableName}' \
+                    '(figi, ticker, isin, minPriceIncrement, lot, currency, name, type)' \
+                    'VALUES(' \
+                    f"'{self.figi}', " \
+                    f"'{self.ticker}', " \
+                    f"'{self.isin}', "\
+                    f"{str(self.minPriceIncrement)}, " \
+                    f"{str(self.lot)}, " \
+                    f"'{self.currency}', " \
+                    f"'{self.name}', " \
+                    f"'{self.type_}'" \
+                    ')'
+            #print(query)
+            sqlite_commit(self.dbFileName, query)
+
+    def sqlite_update(self, restResult):
+        if restResult != None:
+            if restResult.status_code == 200:
+                jStr = json.loads(restResult.content)
+                if chek_key('payload', jStr) == True:
+                    if chek_key('instruments', jStr['payload']) == True:
+                        stocks = jStr['payload']['instruments']
+                        for stock in stocks:
+                            self.figi = stock['figi']
+                            self.ticker = stock['ticker']
+                            self.isin = stock['isin']
+
+                            if chek_key('minPriceIncrement', stock):
+                                self.minPriceIncrement = stock['minPriceIncrement']
+                            else:
+                                self.minPriceIncrement = 0
+
+                            self.lot = stock['lot']
+                            self.currency = stock['currency']
+                            self.name = stock['name']
+                            self.type_ = stock['type']
+
+                            self.sqlite_insert()
+
+
 class TinkofInvest:
     """
     Основной класс для работы с инвестициями
     """
+
     def __init__(self, dbFileName):
         self.dbFileName = dbFileName
         self.restUrl = ''
         self.apiToken = ''
         self.headers = {'Authorization': 'Bearer ' + self.apiToken}
         self.commission = 0.0 # Комисиия при покупке/продаже в %
-
-
-        self.sqlite_ctreate_tiFigis()
-        self.sqlite_ctreate_tiCandles()
 
         """
         candle = TiCandle()
@@ -104,20 +200,20 @@ class TinkofInvest:
         candle.insert_to_sqlite(self.dbFileName)
         """
 
+    def set_params(self):
+        stock = TiStock(self.dbFileName)
+        stock.sqlite_ctreate_table()
+        stocks = self.get_data_stocks()
+        #print(stocks.)
+        stock.sqlite_update(stocks)
 
-    def sqlite_ctreate_table(self, query):
-        sqliteConnection = sqlite3.connect(self.dbFileName)
-        sqliteCursor = sqliteConnection.cursor()
-        sqliteCursor.execute(query)
-        sqliteConnection.commit()
-        sqliteConnection.close()
-
+        self.sqlite_ctreate_tiCandles()
 
     def sqlite_ctreate_tiCandles(self):
         query = 'create table if not exists tiCandles' \
             '(' \
             'candlesID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-            'figiID INTEGER,' \
+            'stockID INTEGER,' \
             'hash text,' \
             'open double,' \
             'close double,' \
@@ -125,44 +221,31 @@ class TinkofInvest:
             'low double,' \
             'volume int,' \
             'time text,' \
-            'FOREIGN KEY(figiID) REFERENCES tiFigis(figiID)'\
+            'FOREIGN KEY(stockID) REFERENCES tiStock(stockID)'\
             ')'
 
-        self.sqlite_ctreate_table(query)
-
-
-    def sqlite_ctreate_tiFigis(self):
-        query = 'create table if not exists tiFigis' \
-            '(' \
-	        'figiID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-	        'figi text,' \
-	        'name text' \
-            'dayAgo' \
-            ')'
-
-        self.sqlite_ctreate_table(query)
-
+        sqlite_commit(self.dbFileName, query)
 
     def sqlite_isert_in_tiCandles(self, candle):
 
         hash = ''
 
-
     def get_data(self, dataPref):
         url = self.restUrl + dataPref
-
         try:
-            restResult = requests.get(url=url, headers=self.headers)
+            result = requests.get(url=url, headers=self.headers)
         except:
-            restResult = None
+            result = None
 
-        return restResult
-
+        return result
 
     def get_data_portfolio(self):
         dataPref = 'portfolio'
         return self.get_data(dataPref)
 
+    def get_data_stocks(self):
+        dataPref = 'market/stocks'
+        return self.get_data(dataPref)
 
     def get_list_portfolio(self):
         instrumentsList = []
@@ -175,7 +258,6 @@ class TinkofInvest:
                     instrumentsList.append(item)
 
         return instrumentsList
-
 
     def get_candles(self, figi, dateStart, dateEnd, interval):
         """
@@ -202,7 +284,6 @@ class TinkofInvest:
 
         return candlesList
 
-
     def get_candles_days_ago(self, figi, daysAgo):
         """
         Возвращает лист свечей дней тому назад
@@ -211,14 +292,25 @@ class TinkofInvest:
         :param daysAgo: Количествой дней тому назад от текущей даты
         :return:
         """
+
         now = datetime.now(tz=timezone('Europe/Moscow'))
         unNow = now - timedelta(days=daysAgo)
+        unNow2 = unNow - timedelta(days=1)
 
-        result = self.get_candles(figi, unNow, now, 'day')
+        result = self.get_candles(figi, unNow2, unNow, 'day')
         return result
-
 
     def candles_days_ago_to_sqlite(self, figi, daysAgo):
         l = self.get_candles_days_ago(figi, daysAgo)
         if len(l) > 0:
-            pass
+            candle = TiCandle()
+            candle.figi = l[0]['figi']
+            candle.o = l[0]['o']
+            candle.c = l[0]['c']
+            candle.h = l[0]['h']
+            candle.l = l[0]['l']
+            candle.v = l[0]['v']
+            candle.time = l[0]['time']
+
+            candle.insert_to_sqlite(self.dbFileName)
+            print(l[0]['o'])
