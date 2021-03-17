@@ -49,9 +49,13 @@ class TiCandle:
     """
     Класс свечи
     """
-    def __init__(self):
-        self.hash = "" # хэш записи
-        self.figi = "" # идентификатор инструмента
+    def __init__(self, dbFileName):
+        self.tableName = 'tiCandles'
+        self.dbFileName = dbFileName
+        self.figi = ''
+        #
+        self.hash = '' # хэш записи
+        self.stockID = '' # идентификатор инструмента
         self.o = 0.0   # цена при открытии (open)
         self.c = 0.0   # цена при закрытии (close)
         self.h = 0.0   # максимальная цена (height)
@@ -59,49 +63,63 @@ class TiCandle:
         self.v = 0     # объём (volume)
         self.time = '' # время
 
-
     def set_hash(self):
         s = self.figi + str(self.o) + str(self.c) + str(self.h) + str(self.l) + str(self.v) + self.time
         m = hashlib.md5()
         m.update(s.encode())
         self.hash = str(m.hexdigest())
-        return self.hash
 
+    def sqlite_ctreate_table(self):
+        query = f'create table if not exists {self.tableName}' \
+            '(' \
+            'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
+            'stockID INTEGER,' \
+            'hash text,' \
+            'open double,' \
+            'close double,' \
+            'height double,' \
+            'low double,' \
+            'volume int,' \
+            'time text,' \
+            'FOREIGN KEY(stockID) REFERENCES tiStock(stockID)'\
+            ')'
 
-    def insert_to_sqlite(self, dbFileName):
+        sqlite_commit(self.dbFileName, query)
+
+    def sqlite_insert(self):
         self.set_hash()
 
-        sqliteConnection = sqlite3.connect(dbFileName)
-        sqliteCursor = sqliteConnection.cursor()
-
-        tableName = 'tiCandles'
-        query = f"select hash from {tableName} where hash='{self.hash}'"
-        sqliteCursor.execute(query)
-        rows = sqliteCursor.fetchall()
+        query = f"select hash from {self.tableName} where hash='{self.hash}'"
+        rows = sqlite_result(self.dbFileName, query)
 
         if len(rows) == 0:
-            query = f'insert into {tableName}' \
-                '(hash, figi, open, close, height, low, volume, time) ' \
-                'VALUES(' \
-                f"'{self.hash}', " \
-                f"'{self.figi}', " \
-                f'{self.o}, ' \
-                f'{self.c}, ' \
-                f'{self.h}, ' \
-                f'{self.l}, ' \
-                f'{self.c}, ' \
-                f"'{self.time}'" \
-                ')'
-            sqliteCursor.execute(query)
-            sqliteConnection.commit()
+            tableName = 'tiStock'
+            query = f"select figi from {tableName} where figi='{self.figi}'"
+            rows = sqlite_result(self.dbFileName, query)
 
-        sqliteConnection.close()
+            if len(rows) > 0:
+                self.stockID = rows[0]
+
+                query = f'insert into {self.tableName}' \
+                    '(hash, stockID, open, close, height, low, volume, time) ' \
+                    'VALUES(' \
+                    f"'{self.hash}', " \
+                    f"'{self.stockID}', " \
+                    f'{self.o}, ' \
+                    f'{self.c}, ' \
+                    f'{self.h}, ' \
+                    f'{self.l}, ' \
+                    f'{self.c}, ' \
+                    f"'{self.time}'" \
+                    ')'
+                sqlite_commit(self.dbFileName, query)
 
 
 class TiStock:
     def __init__(self, dbFileName):
         self.tableName = 'tiStock'
         self.dbFileName = dbFileName
+        #
         self.stockID = 0
         self.figi = ''
         self.ticker = ''
@@ -119,7 +137,7 @@ class TiStock:
             'figi text,' \
             'ticker text,' \
             'isin text,' \
-            'minPriceIncrement doble,' \
+            'minPriceIncrement double,' \
             'lot INTEGER,' \
             'currency text,' \
             'name text,' \
@@ -147,7 +165,7 @@ class TiStock:
                     f"'{self.name}', " \
                     f"'{self.type_}'" \
                     ')'
-            #print(query)
+
             sqlite_commit(self.dbFileName, query)
 
     def sqlite_update(self, restResult):
@@ -201,13 +219,19 @@ class TinkofInvest:
         """
 
     def set_params(self):
-        stock = TiStock(self.dbFileName)
-        stock.sqlite_ctreate_table()
-        stocks = self.get_data_stocks()
-        #print(stocks.)
-        stock.sqlite_update(stocks)
+        """
+        Функция первичной настройи класса
+        """
 
-        self.sqlite_ctreate_tiCandles()
+        # Создаём таблицу и заполняем таблицу tiStock
+        self.stock = TiStock(self.dbFileName)
+        self.stock.sqlite_ctreate_table()
+        stocks = self.get_data_stocks()
+        self.stock.sqlite_update(stocks)
+
+        # Создаём таблицу tiCandles
+        self.candle = TiCandle(self.dbFileName)
+        self.candle.sqlite_ctreate_table()
 
     def sqlite_ctreate_tiCandles(self):
         query = 'create table if not exists tiCandles' \
@@ -225,10 +249,6 @@ class TinkofInvest:
             ')'
 
         sqlite_commit(self.dbFileName, query)
-
-    def sqlite_isert_in_tiCandles(self, candle):
-
-        hash = ''
 
     def get_data(self, dataPref):
         url = self.restUrl + dataPref

@@ -9,6 +9,7 @@ ti.headers = {'Authorization': 'Bearer ' + ti.apiToken}
 ti.commission = 0.05
 
 ti.set_params()
+
 #ti.candles_days_ago_to_sqlite('BBG00DL8NMV2', 1)
 
 #print(ti.get_list_portfolio())
