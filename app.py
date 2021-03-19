@@ -4,7 +4,11 @@ import pprint
 ti = class_tinkoff_invest.TinkofInvest()
 ti.set_params()
 
-ti.candles_days_ago_to_sqlite('BBG00DL8NMV2', 1)
+for i in range(5):
+
+    ti.candles_days_ago_to_sqlite('BBG00DL8NMV2', i+1)
+    ti.candles_days_ago_to_sqlite('BBG0077VNXV6', i + 1)
+
 
 #print(ti.get_list_portfolio())
 

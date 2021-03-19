@@ -54,64 +54,63 @@ class TiCandle:
         self.dbFileName = dbFileName
         self.figi = ''
         #
-        self.hash = '' # хэш записи
         self.stockID = '' # идентификатор инструмента
         self.o = 0.0   # цена при открытии (open)
         self.c = 0.0   # цена при закрытии (close)
         self.h = 0.0   # максимальная цена (height)
         self.l = 0.0   # минимальная цена (low)
         self.v = 0     # объём (volume)
-        self.time = '' # время
+        self.t = '' # время
+        self.interval = ''
 
     def set_hash(self):
-        s = self.figi + str(self.o) + str(self.c) + str(self.h) + str(self.l) + str(self.v) + self.time
+        s = self.figi + str(self.o) + str(self.c) + str(self.h) + str(self.l) + str(self.v) + self.t + self.interval
         m = hashlib.md5()
         m.update(s.encode())
         self.hash = str(m.hexdigest())
 
     def sqlite_ctreate_table(self):
         query = f'create table if not exists {self.tableName}' \
-            '(' \
-            'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-            'stockID INTEGER,' \
-            'hash text,' \
-            'open double,' \
-            'close double,' \
-            'height double,' \
-            'low double,' \
-            'volume int,' \
-            'time text,' \
-            'FOREIGN KEY(stockID) REFERENCES tiStock(stockID)'\
-            ')'
+                '(' \
+                'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
+                'stockID INTEGER,' \
+                'open double,' \
+                'close double,' \
+                'height double,' \
+                'low double,' \
+                'volume int,' \
+                'time text,' \
+                'interval text,' \
+                'FOREIGN KEY(stockID) REFERENCES tiStock(stockID)'\
+                ')'
 
         sqlite_commit(self.dbFileName, query)
 
     def sqlite_insert(self):
-        self.set_hash()
-
-        query = f"select hash from {self.tableName} where hash='{self.hash}'"
+        query = f"select time from {self.tableName} where time='{self.t}'"
         rows = sqlite_result(self.dbFileName, query)
 
+        # Если записи нет с таким же таймстемпом
         if len(rows) == 0:
-            tableName = 'tiStock'
-            query = f"select figi from {tableName} where figi='{self.figi}'"
+            query = f"select stockID from tiStock where figi='{self.figi}'"
             rows = sqlite_result(self.dbFileName, query)
 
+            # Если нашли ID figi таблице tiStock
             if len(rows) > 0:
-                self.stockID = rows[0]
+                self.stockID = rows[0][0]
 
                 query = f'insert into {self.tableName}' \
-                    '(hash, stockID, open, close, height, low, volume, time) ' \
-                    'VALUES(' \
-                    f"'{self.hash}', " \
-                    f"'{self.stockID}', " \
-                    f'{self.o}, ' \
-                    f'{self.c}, ' \
-                    f'{self.h}, ' \
-                    f'{self.l}, ' \
-                    f'{self.c}, ' \
-                    f"'{self.time}'" \
-                    ')'
+                        '(stockID, open, close, height, low, volume, time, interval) ' \
+                        'VALUES(' \
+                        f"{self.stockID}, " \
+                        f'{self.o}, ' \
+                        f'{self.c}, ' \
+                        f'{self.h}, ' \
+                        f'{self.l}, ' \
+                        f'{self.c}, ' \
+                        f"'{self.t}', " \
+                        f"'{self.interval}'" \
+                        ')'
                 sqlite_commit(self.dbFileName, query)
 
 
@@ -212,6 +211,7 @@ class TinkofInvest:
         Функция первичной настройи класса, вызывается после создания класса
         """
 
+        # Пытаемся загрузить параметры из конфигурационного файла
         try:
             confFile = open('conf.txt', 'r')
             confParams = json.load(confFile)
@@ -235,23 +235,6 @@ class TinkofInvest:
         # Создаём таблицу tiCandles
         self.candle = TiCandle(self.sqliteDB)
         self.candle.sqlite_ctreate_table()
-
-    def sqlite_ctreate_tiCandles(self):
-        query = 'create table if not exists tiCandles' \
-            '(' \
-            'candlesID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-            'stockID INTEGER,' \
-            'hash text,' \
-            'open double,' \
-            'close double,' \
-            'height double,' \
-            'low double,' \
-            'volume int,' \
-            'time text,' \
-            'FOREIGN KEY(stockID) REFERENCES tiStock(stockID)'\
-            ')'
-
-        sqlite_commit(self.dbFileName, query)
 
     def get_data(self, dataPref):
         url = self.restUrl + dataPref
@@ -302,7 +285,6 @@ class TinkofInvest:
             if candlesData.status_code == 200:
                 jStr = json.loads(candlesData.content)
                 for item in jStr['payload']['candles']:
-                    #print(item)
                     candlesList.append(item)
 
         return candlesList
@@ -326,5 +308,14 @@ class TinkofInvest:
     def candles_days_ago_to_sqlite(self, figi, daysAgo):
         l = self.get_candles_days_ago(figi, daysAgo)
         if len(l) > 0:
-            #self.candle.o = l['o']
             print(l)
+            self.candle.o = l[0]['o']
+            self.candle.c = l[0]['c']
+            self.candle.h = l[0]['h']
+            self.candle.l = l[0]['l']
+            self.candle.v = l[0]['v']
+            self.candle.t = l[0]['time']
+            self.candle.interval = l[0]['interval']
+            self.candle.figi = l[0]['figi']
+
+            self.candle.sqlite_insert()
