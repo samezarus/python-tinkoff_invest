@@ -198,39 +198,42 @@ class TinkofInvest:
     Основной класс для работы с инвестициями
     """
 
-    def __init__(self, dbFileName):
-        self.dbFileName = dbFileName
-        self.restUrl = ''
+    def __init__(self):
+        self.sqliteDB = ''
+        self.restUrl = 'https://api-invest.tinkoff.ru/openapi/'
         self.apiToken = ''
-        self.headers = {'Authorization': 'Bearer ' + self.apiToken}
+        self.headers = ''
         self.commission = 0.0 # Комисиия при покупке/продаже в %
-
-        """
-        candle = TiCandle()
-        candle.hash = ''
-        candle.figi = 'A12CF'
-        candle.o = 12.1
-        candle.c = 12.5
-        candle.h = 12.8
-        candle.l = 11.9
-        candle.v = 13400
-        candle.time = '2021-03-12T15:13:02'
-        candle.insert_to_sqlite(self.dbFileName)
-        """
+        self.stock = None
+        self.candle = None
 
     def set_params(self):
         """
-        Функция первичной настройи класса
+        Функция первичной настройи класса, вызывается после создания класса
         """
 
+        try:
+            confFile = open('conf.txt', 'r')
+            confParams = json.load(confFile)
+
+            self.restUrl = confParams['restUrl']
+            self.apiToken = confParams['apiToken']  # Токен для торгов
+            self.headers = {'Authorization': 'Bearer ' + self.apiToken}
+            self.commission = confParams['commission']  # Базовая комиссия при операциях
+            self.sqliteDB = confParams['sqliteDB']
+        finally:
+            confFile.close()
+
+
+
         # Создаём таблицу и заполняем таблицу tiStock
-        self.stock = TiStock(self.dbFileName)
+        self.stock = TiStock(self.sqliteDB)
         self.stock.sqlite_ctreate_table()
         stocks = self.get_data_stocks()
         self.stock.sqlite_update(stocks)
 
         # Создаём таблицу tiCandles
-        self.candle = TiCandle(self.dbFileName)
+        self.candle = TiCandle(self.sqliteDB)
         self.candle.sqlite_ctreate_table()
 
     def sqlite_ctreate_tiCandles(self):
@@ -323,14 +326,5 @@ class TinkofInvest:
     def candles_days_ago_to_sqlite(self, figi, daysAgo):
         l = self.get_candles_days_ago(figi, daysAgo)
         if len(l) > 0:
-            candle = TiCandle()
-            candle.figi = l[0]['figi']
-            candle.o = l[0]['o']
-            candle.c = l[0]['c']
-            candle.h = l[0]['h']
-            candle.l = l[0]['l']
-            candle.v = l[0]['v']
-            candle.time = l[0]['time']
-
-            candle.insert_to_sqlite(self.dbFileName)
-            print(l[0]['o'])
+            #self.candle.o = l['o']
+            print(l)
