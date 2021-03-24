@@ -1,13 +1,19 @@
 import class_tinkoff_invest
+
+from datetime import datetime, timedelta
 import pprint
 
 ti = class_tinkoff_invest.TinkofInvest()
 ti.set_params()
 
-for i in range(5):
+d = '2021-03-23'
 
-    ti.candles_days_ago_to_sqlite('BBG00DL8NMV2', i+1)
-    ti.candles_days_ago_to_sqlite('BBG0077VNXV6', i + 1)
+print(ti.get_candles('BBG00DL8NMV2', d, 'day'))
+
+for i in range(5):
+    pass
+    #ti.candles_days_ago_to_sqlite('BBG00DL8NMV2', 'day', i + 1)
+    #ti.candles_days_ago_to_sqlite('BBG0077VNXV6', 'day', i + 1)
 
 
 #print(ti.get_list_portfolio())
