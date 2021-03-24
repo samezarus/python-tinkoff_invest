@@ -113,6 +113,9 @@ class TiCandle:
                         ')'
                 sqlite_commit(self.dbFileName, query)
 
+    def sqlite_find_candle(self, figi, date, interval):
+        query = f"select figi, time from {self.tableName} where time='{self.t}'"
+        rows = sqlite_result(self.dbFileName, query)
 
 class TiStock:
     def __init__(self, dbFileName):
