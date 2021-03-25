@@ -13,7 +13,7 @@ def dtToUrlFormat(dtStr):
     :return:
     """
 
-    result = str(dtStr) + '.131642+03:00'
+    result = str(dtStr) + '.283+00:00'
     result = result.replace(':', '%3A')
     result = result.replace('+', '%2B')
 
@@ -30,7 +30,6 @@ def sqlite_result(dbFileName, query):
     #return sqliteCursor.fetchall()
     return result
 
-
 def sqlite_commit(dbFileName, query):
     """
     Функция выполняет запрос к БД и комитит
@@ -44,7 +43,6 @@ def sqlite_commit(dbFileName, query):
     sqliteConnection.commit()
     sqliteConnection.close()
 
-
 def chek_key(key, struc):
     try:
         if key in struc:
@@ -57,7 +55,7 @@ class TiCandle:
     """
     Класс свечи
     """
-    def __init__(self, dbFileName):
+    def __init__(self, dbFileName, candleRes):
         self.tableName = 'tiCandles'
         self.dbFileName = dbFileName
         #
@@ -69,6 +67,7 @@ class TiCandle:
         self.v = 0         # объём (volume)
         self.interval = '' # Интервал за который получаем свечу
         self.t = ''        # время
+
 
     def set_hash(self):
         s = self.figi + str(self.o) + str(self.c) + str(self.h) + str(self.l) + str(self.v) + self.t + self.interval
@@ -108,13 +107,7 @@ class TiCandle:
         sqlite_commit(self.dbFileName, query)
 
     def sqlite_insert(self):
-        query = f"select figi, interval, time " \
-                f"from {self.tableName} " \
-                f"where figi='{self.figi}' and interval='{self.interval}' and time='{self.t}'"
-        rows = sqlite_result(self.dbFileName, query)
-
-        # Если записи нет с таким же таймстемпом
-        if len(rows) == 0:
+        if not self.sqlite_finde_candle(self.figi, self.t, self.interval):
             query = f'insert into {self.tableName}' \
             '(figi, interval, open, close, height, low, volume, time) ' \
                     'VALUES(' \
@@ -124,20 +117,35 @@ class TiCandle:
                     f'{self.c}, ' \
                     f'{self.h}, ' \
                     f'{self.l}, ' \
-                    f'{self.c}, ' \
+                    f'{self.v}, ' \
                     f"'{self.t}'" \
                     ')'
             sqlite_commit(self.dbFileName, query)
 
-    def sqlite_find_candle(self, figi, interval, dateParam):
+    def load(self, candleRes):
+        if len(candleRes) > 0:
+            self.figi = candleRes['figi']
+            self.o = candleRes['o']
+            self.c = candleRes['c']
+            self.h = candleRes['h']
+            self.l = candleRes['l']
+            self.v = candleRes['v']
+            self.interval = candleRes['interval']
+            self.t = candleRes['time']
+
+    def sqlite_finde_candle(self, figi, dateParam, interval):
+        """
+        dateParam: (str) 2021-03-23T22:34:00Z
         """
 
-        :param figi:
-        :param interval:
-        :param dateParam:
-        :return:
-        """
-
+        query = f"select figi, interval, time " \
+                f"from {self.tableName} " \
+                f"where figi='{figi}' and interval='{interval}' and time='{dateParam}'"
+        rows = sqlite_result(self.dbFileName, query)
+        if len(rows) == 0:
+            return False
+        else:
+            return True
 
 
 class TiStock:
@@ -259,7 +267,7 @@ class TinkofInvest:
         self.stock.sqlite_update(stocks)
 
         # Создаём таблицу tiCandles
-        self.candle = TiCandle(self.sqliteDB)
+        self.candle = TiCandle(self.sqliteDB, '')
         self.candle.sqlite_ctreate_table()
 
     def get_data(self, dataPref):
@@ -306,47 +314,25 @@ class TinkofInvest:
         d1 = f'{dateParam} 00:00:00'
         d2 = f'{dateParam} 23:59:59'
 
-        url = f'market/candles?figi={figi}&from=' + dtToUrlFormat(d1) + '&to=' + dtToUrlFormat(d2) + '&interval=' + interval
+        url = f'market/candles?figi={figi}&from={dtToUrlFormat(d1)}&to={dtToUrlFormat(d2)}&interval={interval}'
         candlesData = self.get_data(url)
 
         if candlesData != None:
             if candlesData.status_code == 200:
                 jStr = json.loads(candlesData.content)
-                for item in jStr['payload']['candles']:
-                    candlesList.append(item)
+                if chek_key('payload', jStr):
+                    if chek_key('candles', jStr['payload']):
+                        for item in jStr['payload']['candles']:
+                            candlesList.append(item)
 
         return candlesList
 
-    def get_candles_days_ago(self, figi, interval, daysAgo):
-        """
-        Возвращает лист свечей дней тому назад
+    def candles_on_day_to_sqlite(self, figi, dateParam, interval):
+        l = self.get_candles(figi, dateParam, interval)
+        #print(dateParam)
+        for camdle in l:
+            if not self.candle.sqlite_finde_candle(camdle['figi'], camdle['time'], camdle['interval']):
+                #print(f'insert into sqlite: {camdle}')
+                self.candle.load(camdle)
+                self.candle.sqlite_insert()
 
-        :param figi: figi-инструмента
-        :param daysAgo: Количествой дней тому назад от текущей даты
-        :return:
-        """
-
-        now = datetime.now(tz=timezone('Europe/Moscow'))
-        unNow = now - timedelta(days=daysAgo)
-        unNow2 = unNow - timedelta(days=1)
-
-        result = self.get_candles(figi, unNow2, unNow, interval)
-        return result
-
-    def candles_days_ago_to_sqlite(self, figi, interval, dateParam):
-
-
-        l = self.get_candles_days_ago(figi, interval, daysAgo)
-
-        if len(l) > 0:
-            print(l)
-            self.candle.o = l[0]['o']
-            self.candle.c = l[0]['c']
-            self.candle.h = l[0]['h']
-            self.candle.l = l[0]['l']
-            self.candle.v = l[0]['v']
-            self.candle.t = l[0]['time']
-            self.candle.interval = l[0]['interval']
-            self.candle.figi = l[0]['figi']
-
-            self.candle.sqlite_insert()
