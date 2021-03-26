@@ -49,6 +49,12 @@ def chek_key(key, struc):
     except:
         return False
 
+def toLog(msg):
+    logFile = open('log.txt', 'a')
+    logFile.write(f'{datetime.now()} - {msg} \r\n')
+    logFile.close()
+
+
 
 class TiCandle:
     """
@@ -279,12 +285,15 @@ class TinkofInvest:
             self.headers = {'Authorization': 'Bearer ' + self.apiToken}
             self.commission = confParams['commission']  # Базовая комиссия при операциях
             self.sqliteDB = confParams['sqliteDB']
+
+            logFile = open('log.txt', 'a')
         finally:
             confFile.close()
+            logFile.close()
 
 
 
-        # Создаём таблицу и заполняем таблицу tiStock
+            # Создаём таблицу и заполняем таблицу tiStock
         self.stock = TiStock(self.sqliteDB)
         self.stock.sqlite_ctreate_table()
         stocks = self.get_data_stocks()
@@ -352,7 +361,9 @@ class TinkofInvest:
         return candlesList
 
     def candles_on_day_to_sqlite(self, figi, dateParam, interval):
-        print(f'{dateParam} - {figi}')
+        msg = f'get {figi} {interval} on {dateParam}'
+        toLog(msg)
+        #print(msg)
         candlesList = self.get_candles(figi, dateParam, interval)
         cc = self.candle.sqlite_find_count(figi, dateParam, interval)
         #print(f'    api count: {len(candlesList)}')
@@ -360,6 +371,8 @@ class TinkofInvest:
         if len(candlesList) != int(cc):
             for camdle in candlesList:
                 if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
+                    msg = f"insert {camdle}"
+                    toLog(msg)
                     #print(f"    insert into sqlite: {camdle['time']}")
                     self.candle.load(camdle)
                     self.candle.sqlite_insert()
