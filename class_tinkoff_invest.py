@@ -27,7 +27,6 @@ def sqlite_result(dbFileName, query):
     sqliteCursor.execute(query)
     result = sqliteCursor.fetchall()
     sqliteConnection.close()
-    #return sqliteCursor.fetchall()
     return result
 
 def sqlite_commit(dbFileName, query):
@@ -68,7 +67,6 @@ class TiCandle:
         self.interval = '' # Интервал за который получаем свечу
         self.t = ''        # время
 
-
     def set_hash(self):
         s = self.figi + str(self.o) + str(self.c) + str(self.h) + str(self.l) + str(self.v) + self.t + self.interval
         m = hashlib.md5()
@@ -107,7 +105,7 @@ class TiCandle:
         sqlite_commit(self.dbFileName, query)
 
     def sqlite_insert(self):
-        if not self.sqlite_finde_candle(self.figi, self.t, self.interval):
+        if not self.sqlite_find_candle(self.figi, self.t, self.interval):
             query = f'insert into {self.tableName}' \
             '(figi, interval, open, close, height, low, volume, time) ' \
                     'VALUES(' \
@@ -133,7 +131,7 @@ class TiCandle:
             self.interval = candleRes['interval']
             self.t = candleRes['time']
 
-    def sqlite_finde_candle(self, figi, dateParam, interval):
+    def sqlite_find_candle(self, figi, dateParam, interval):
         """
         dateParam: (str) 2021-03-23T22:34:00Z
         """
@@ -147,6 +145,32 @@ class TiCandle:
         else:
             return True
 
+    def sqlite_find_count(self, figi, dateParam, interval):
+        """
+
+        :param figi:
+        :param dateParam:
+        :param interval:
+        :return:
+        """
+
+        result = 0
+
+        query = f"select " \
+                f"  count(figi) " \
+                f"from " \
+                f"  {self.tableName} " \
+                f"where " \
+                f"  figi='{figi}' and " \
+                f"  interval='{interval}' and " \
+                f"  time like '{dateParam}%'"
+
+        rows = sqlite_result(self.dbFileName, query)
+
+        if len(rows) == 1:
+            if len(rows[0]) == 1:
+                result = rows[0][0]
+        return result
 
 class TiStock:
     def __init__(self, dbFileName):
@@ -328,11 +352,15 @@ class TinkofInvest:
         return candlesList
 
     def candles_on_day_to_sqlite(self, figi, dateParam, interval):
-        l = self.get_candles(figi, dateParam, interval)
-        #print(dateParam)
-        for camdle in l:
-            if not self.candle.sqlite_finde_candle(camdle['figi'], camdle['time'], camdle['interval']):
-                #print(f'insert into sqlite: {camdle}')
-                self.candle.load(camdle)
-                self.candle.sqlite_insert()
+        print(f'{dateParam} - {figi}')
+        candlesList = self.get_candles(figi, dateParam, interval)
+        cc = self.candle.sqlite_find_count(figi, dateParam, interval)
+        #print(f'    api count: {len(candlesList)}')
+        #print(f'    sqlite count: {cc}')
+        if len(candlesList) != int(cc):
+            for camdle in candlesList:
+                if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
+                    #print(f"    insert into sqlite: {camdle['time']}")
+                    self.candle.load(camdle)
+                    self.candle.sqlite_insert()
 
