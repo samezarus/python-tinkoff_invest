@@ -2,5 +2,6 @@
     "restUrl":"https://api-invest.tinkoff.ru/openapi/",
 	"apiToken":"...",
     "commission":0.05,
-	"sqliteDB":"tinkofInvest.db"
+	"sqliteDB":"tinkofInvest.db",
+	candlesDaysAgo:1000
 }
