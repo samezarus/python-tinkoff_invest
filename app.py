@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import class_tinkoff_invest
 
 from datetime import datetime, timedelta
@@ -10,7 +12,7 @@ ti.set_params()
 
 # Запись в БЛ свечей из списка портфолио
 pList = ti.get_list_portfolio()
-for daysAgo in range(1, 1000):
+for daysAgo in range(1, ti.candlesDaysAgo):
 
     now = datetime.now(tz=timezone('Europe/Moscow'))
     unNow = now - timedelta(days=daysAgo)

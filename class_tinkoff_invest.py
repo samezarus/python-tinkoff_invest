@@ -13,7 +13,7 @@ def dtToUrlFormat(dtStr):
     :return:
     """
 
-    result = str(dtStr) + '.283+00:00'
+    result = f'{str(dtStr)}.283+00:00'
     result = result.replace(':', '%3A')
     result = result.replace('+', '%2B')
 
@@ -24,6 +24,7 @@ def dtToUrlFormat(dtStr):
 def sqlite_result(dbFileName, query):
     sqliteConnection = sqlite3.connect(dbFileName)
     sqliteCursor = sqliteConnection.cursor()
+    print(query)
     sqliteCursor.execute(query)
     result = sqliteCursor.fetchall()
     sqliteConnection.close()
@@ -55,7 +56,6 @@ def toLog(msg):
     logFile.close()
 
 
-
 class TiCandle:
     """
     Класс свечи
@@ -80,21 +80,6 @@ class TiCandle:
         self.hash = str(m.hexdigest())
 
     def sqlite_ctreate_table(self):
-        """
-        query = f'create table if not exists {self.tableName}' \
-                '(' \
-                'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-                'stockID INTEGER,' \
-                'open double,' \
-                'close double,' \
-                'height double,' \
-                'low double,' \
-                'volume int,' \
-                'time text,' \
-                'interval text,' \
-                'FOREIGN KEY(stockID) REFERENCES tiStock(stockID)'\
-                ')'
-        """
         query = f'create table if not exists {self.tableName}' \
                 '(' \
                 'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
@@ -282,18 +267,16 @@ class TinkofInvest:
 
             self.restUrl = confParams['restUrl']
             self.apiToken = confParams['apiToken']  # Токен для торгов
-            self.headers = {'Authorization': 'Bearer ' + self.apiToken}
+            self.headers = {'Authorization': f'Bearer {self.apiToken}'}
             self.commission = confParams['commission']  # Базовая комиссия при операциях
             self.sqliteDB = confParams['sqliteDB']
+            self.candlesDaysAgo = int(confParams['candlesDaysAgo'])
 
-            logFile = open('log.txt', 'a')
         finally:
             confFile.close()
-            logFile.close()
 
 
-
-            # Создаём таблицу и заполняем таблицу tiStock
+        # Создаём таблицу и заполняем таблицу tiStock
         self.stock = TiStock(self.sqliteDB)
         self.stock.sqlite_ctreate_table()
         stocks = self.get_data_stocks()
@@ -304,7 +287,7 @@ class TinkofInvest:
         self.candle.sqlite_ctreate_table()
 
     def get_data(self, dataPref):
-        url = self.restUrl + dataPref
+        url = f'{self.restUrl}{dataPref}'
         try:
             result = requests.get(url=url, headers=self.headers)
         except:
@@ -332,20 +315,18 @@ class TinkofInvest:
 
         return instrumentsList
 
-    def get_candles(self, figi, dateParam, interval):
+    def get_candles(self, figi, d1, d2, interval):
         """
         Функция получает свечу инструмента за промежуток времени с указанным интервалом
 
         :param figi: figi-инструмента
-        :param dateParam: (str) Дата получения данных (2021-03-24)
-        :param interval: вес интервала (1min, 2min, 3min, 5min, 10min, 15min, 30min, hour, day, week, month)
+        :param d1: (str) начальная дата среза (2007-07-23T00:00:00)
+        :param d2: (str) конечная дата среза (2007-07-23T23:59:59)
+        :param interval: "вес" интервала (1min, 2min, 3min, 5min, 10min, 15min, 30min, hour, day, week, month)
         :return: список из словарей вида: {"o": 0.0, "c": 0.0, "h": 0.0, "l": 0.0, "v": 00, "time": "2007-07-23T07:00:00Z", "interval": "day", "figi": "BBG00DL8NMV2"}
         """
 
         candlesList = []
-
-        d1 = f'{dateParam} 00:00:00'
-        d2 = f'{dateParam} 23:59:59'
 
         url = f'market/candles?figi={figi}&from={dtToUrlFormat(d1)}&to={dtToUrlFormat(d2)}&interval={interval}'
         candlesData = self.get_data(url)
@@ -360,18 +341,29 @@ class TinkofInvest:
 
         return candlesList
 
+    def get_candles_by_date(self, figi, dateParam, interval):
+        """
+        Функция получает свечу инструмента за дату(полные сутки) с указанным интервалом
+
+        :param dateParam: (str) Дата получения данных (2021-03-24)
+        """
+        d1 = f'{dateParam} 00:00:00'
+        d2 = f'{dateParam} 23:59:59'
+
+        return self.get_candles(figi, d1, d2, interval)
+
     def candles_on_day_to_sqlite(self, figi, dateParam, interval):
         msg = f'get {figi} {interval} on {dateParam}'
         toLog(msg)
         #print(msg)
-        candlesList = self.get_candles(figi, dateParam, interval)
+        candlesList = self.get_candles_by_date(figi, dateParam, interval)
         cc = self.candle.sqlite_find_count(figi, dateParam, interval)
         #print(f'    api count: {len(candlesList)}')
         #print(f'    sqlite count: {cc}')
         if len(candlesList) != int(cc):
             for camdle in candlesList:
                 if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
-                    msg = f"insert {camdle}"
+                    msg = f"insert {camdle['time']}"
                     toLog(msg)
                     #print(f"    insert into sqlite: {camdle['time']}")
                     self.candle.load(camdle)
