@@ -24,7 +24,7 @@ def dtToUrlFormat(dtStr):
 def sqlite_result(dbFileName, query):
     sqliteConnection = sqlite3.connect(dbFileName)
     sqliteCursor = sqliteConnection.cursor()
-    print(query)
+    #print(query)
     sqliteCursor.execute(query)
     result = sqliteCursor.fetchall()
     sqliteConnection.close()
@@ -73,13 +73,7 @@ class TiCandle:
         self.interval = '' # Интервал за который получаем свечу
         self.t = ''        # время
 
-    def set_hash(self):
-        s = self.figi + str(self.o) + str(self.c) + str(self.h) + str(self.l) + str(self.v) + self.t + self.interval
-        m = hashlib.md5()
-        m.update(s.encode())
-        self.hash = str(m.hexdigest())
-
-    def sqlite_ctreate_table(self):
+    def sqlite_create_table(self):
         query = f'create table if not exists {self.tableName}' \
                 '(' \
                 'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
@@ -163,6 +157,23 @@ class TiCandle:
                 result = rows[0][0]
         return result
 
+    def sqlite_find_min_date(self, figi, interval):
+        result = ''
+        query = f"select " \
+                f"  min(time) " \
+                f"from " \
+                f"  {self.tableName} " \
+                f"where " \
+                f"  figi='{figi}' and" \
+                f"  interval='{interval}'"
+
+        rows = sqlite_result(self.dbFileName, query)
+
+        if len(rows) == 1:
+            if len(rows[0]) == 1:
+                result = rows[0][0]
+        return result
+
 class TiStock:
     def __init__(self, dbFileName):
         self.tableName = 'tiStock'
@@ -178,7 +189,7 @@ class TiStock:
         self.name = ''
         self.type_ = ''
 
-    def sqlite_ctreate_table(self):
+    def sqlite_create_table(self):
         query = f'create table if not exists {self.tableName}' \
             '(' \
             'stockID INTEGER PRIMARY KEY AUTOINCREMENT,' \
@@ -240,6 +251,9 @@ class TiStock:
 
                             self.sqlite_insert()
 
+    def sqlite_get_all_figis(self):
+        query = f"select figi from {self.tableName}"
+        return sqlite_result(self.dbFileName, query)
 
 class TinkofInvest:
     """
@@ -270,7 +284,7 @@ class TinkofInvest:
             self.headers = {'Authorization': f'Bearer {self.apiToken}'}
             self.commission = confParams['commission']  # Базовая комиссия при операциях
             self.sqliteDB = confParams['sqliteDB']
-            self.candlesDaysAgo = int(confParams['candlesDaysAgo'])
+            self.candlesEndDate = confParams['candlesEndDate']
 
         finally:
             confFile.close()
@@ -278,13 +292,13 @@ class TinkofInvest:
 
         # Создаём таблицу и заполняем таблицу tiStock
         self.stock = TiStock(self.sqliteDB)
-        self.stock.sqlite_ctreate_table()
+        self.stock.sqlite_create_table()
         stocks = self.get_data_stocks()
         self.stock.sqlite_update(stocks)
 
         # Создаём таблицу tiCandles
         self.candle = TiCandle(self.sqliteDB, '')
-        self.candle.sqlite_ctreate_table()
+        self.candle.sqlite_create_table()
 
     def get_data(self, dataPref):
         url = f'{self.restUrl}{dataPref}'
@@ -304,16 +318,25 @@ class TinkofInvest:
         return self.get_data(dataPref)
 
     def get_list_portfolio(self):
-        instrumentsList = []
+        result = []
 
+        res = self.get_data_portfolio()
+        if res != None:
+            if res.status_code == 200:
+                jStr = json.loads(res.content)
+                if chek_key('payload', jStr):
+                    if chek_key('positions', jStr['payload']):
+                        result = jStr['payload']['positions']
+        """
         restResult = self.get_data_portfolio()
         if restResult != None:
             if restResult.status_code == 200:
                 jStr = json.loads(restResult.content)
                 for item in jStr['payload']['positions']:
                     instrumentsList.append(item)
+        """
 
-        return instrumentsList
+        return result
 
     def get_candles(self, figi, d1, d2, interval):
         """
@@ -352,10 +375,10 @@ class TinkofInvest:
 
         return self.get_candles(figi, d1, d2, interval)
 
-    def candles_on_day_to_sqlite(self, figi, dateParam, interval):
+    def candles_by_date_to_sqlite(self, figi, dateParam, interval):
         msg = f'get {figi} {interval} on {dateParam}'
         toLog(msg)
-        #print(msg)
+        print(msg)
         candlesList = self.get_candles_by_date(figi, dateParam, interval)
         cc = self.candle.sqlite_find_count(figi, dateParam, interval)
         #print(f'    api count: {len(candlesList)}')
@@ -365,7 +388,50 @@ class TinkofInvest:
                 if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
                     msg = f"insert {camdle['time']}"
                     toLog(msg)
-                    #print(f"    insert into sqlite: {camdle['time']}")
+                    print(f"    insert into sqlite: {camdle['time']}")
                     self.candle.load(camdle)
                     self.candle.sqlite_insert()
 
+    def portfolio_candles_by_date_to_sqlite(self, interval, getType):
+        """
+        Запись исторических свечей по дням в БД SQLite относительно инструментов в портфолио
+        :getType: влияеет на дату с которой получаюся данные.
+            0 - старт со вчера, 1 - с самой ранней даты + 1 день
+        """
+
+        pl= self.get_list_portfolio()
+
+        now = datetime.now(tz=timezone('Europe/Moscow'))
+
+        for pi in pl:
+            dateParam = now
+            figi = pi['figi']
+            print(figi)
+
+            if getType == 1:
+                d = self.candle.sqlite_find_min_date(figi, interval)
+                if len(d) > 10:
+                    dateParam = datetime.strptime(d[0:10], "%Y-%m-%d") + timedelta(days=1)
+
+            while str(dateParam)[0:10] != self.candlesEndDate:
+                self.candles_by_date_to_sqlite(figi, dateParam, interval)
+
+                dateParam = dateParam - timedelta(days=1)
+
+
+    def all_candles_by_date_to_sqlite(self, interval):
+        """
+        Запись исторических свечей по дням в БД SQLite всех инструментов рынка
+        """
+
+        figiList = self.stock.sqlite_get_all_figis()
+        for daysAgo in range(1, self.candlesDaysAgo):
+
+            now = datetime.now(tz=timezone('Europe/Moscow'))
+            unNow = now - timedelta(days=daysAgo)
+            unNow2 = unNow - timedelta(days=1)
+
+            d = str(unNow2)[0:10]
+
+            for figi in figiList:
+                self.candles_by_date_to_sqlite(figi[0], d, interval)

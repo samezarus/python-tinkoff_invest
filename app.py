@@ -11,24 +11,13 @@ ti = class_tinkoff_invest.TinkofInvest()
 ti.set_params()
 
 # Запись в БЛ свечей из списка портфолио
-pList = ti.get_list_portfolio()
-for daysAgo in range(1, ti.candlesDaysAgo):
-
-    now = datetime.now(tz=timezone('Europe/Moscow'))
-    unNow = now - timedelta(days=daysAgo)
-    unNow2 = unNow - timedelta(days=1)
-
-    d = str(unNow2)[0:10]
-    for p in pList:
-        ti.candles_on_day_to_sqlite(p['figi'], d, '1min')
-
+ti.portfolio_candles_by_date_to_sqlite('1min', 1)
 
 
 """
-d = '2021-03-23'
-ti.candles_on_day_to_sqlite('BBG00DL8NMV2', d, '1min')
+# Запись в БЛ свечей всех инструментов рынка
+ti.all_candles_by_date_to_sqlite('month')
 """
-
 
 #print(ti.get_list_portfolio())
 

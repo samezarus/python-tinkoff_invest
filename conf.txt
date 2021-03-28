@@ -3,5 +3,5 @@
 	"apiToken":"...",
     "commission":0.05,
 	"sqliteDB":"tinkofInvest.db",
-	candlesDaysAgo:1000
+	"candlesEndDate":"2020-01-01"
 }
