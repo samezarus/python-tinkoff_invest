@@ -5,6 +5,7 @@ from pytz import timezone
 import sqlite3
 import hashlib
 
+
 def dtToUrlFormat(dtStr):
     """
     Функция для корректного форматирования ДатыВремя в URL
