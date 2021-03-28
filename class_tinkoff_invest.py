@@ -175,6 +175,48 @@ class TiCandle:
                 result = rows[0][0]
         return result
 
+    def create_html_graf(self, figi, dateParam, interval):
+        query = f"select time, close from {self.tableName} where figi='{figi}' and time like '{dateParam}%' and interval='{interval}'"
+        rows = sqlite_result(self.dbFileName, query)
+
+        if len(rows) > 0:
+            data = ''
+
+            for row in rows:
+                data += f"['{row[0]}',  {row[1]}], "
+
+            htmlBody = f"" \
+                       "<html>" \
+                       "<head>" \
+                       "<script type=text/javascript src=https://www.gstatic.com/charts/loader.js></script>" \
+                       "<script type=text/javascript>" \
+                       "google.charts.load('current', {'packages':['corechart']});"\
+                       "google.charts.setOnLoadCallback(drawChart);" \
+                       "function drawChart() {" \
+                       "var data = google.visualization.arrayToDataTable([" \
+                       "['Дата', 'Цена закрытия']," \
+                       f"{data}" \
+                       "]);" \
+                       "var options = {" \
+                       "title: 'Company Performance'," \
+                       "curveType: 'function'," \
+                       "legend: { position: 'bottom' }" \
+                       "};" \
+                       "var chart = new google.visualization.LineChart(document.getElementById('curve_chart'));" \
+                       "chart.draw(data, options);" \
+                       "}" \
+                       "</script>" \
+                       "</head>" \
+                       "<body>" \
+                       "<div id=curve_chart style=width: 900px; height: 900px></div>" \
+                       "</body>" \
+                       "</html>"
+
+            f = open(f'{figi}_{dateParam}_{interval}.html', 'w')
+            f.write(htmlBody)
+            f.close()
+
+
 class TiStock:
     def __init__(self, dbFileName):
         self.tableName = 'tiStock'
@@ -395,6 +437,8 @@ class TinkofInvest:
 
     def portfolio_candles_by_date_to_sqlite(self, interval, getType):
         """
+        !!! нужно упрознить до функции которая обрабатывает переданный ей лист из figi !!!
+
         Запись исторических свечей по дням в БД SQLite относительно инструментов в портфолио
         :getType: влияеет на дату с которой получаюся данные.
             0 - старт со вчера, 1 - с самой ранней даты + 1 день
@@ -419,22 +463,3 @@ class TinkofInvest:
                 self.candles_by_date_to_sqlite(figi, str(dateParam)[0:10], interval)
 
                 dateParam = dateParam - timedelta(days=1)
-
-    def all_candles_by_date_to_sqlite(self, interval):
-        """
-        !!! нужен рефакторинг
-
-        Запись исторических свечей по дням в БД SQLite всех инструментов рынка
-        """
-
-        figiList = self.stock.sqlite_get_all_figis()
-        for daysAgo in range(1, self.candlesDaysAgo):
-
-            now = datetime.now(tz=timezone('Europe/Moscow'))
-            unNow = now - timedelta(days=daysAgo)
-            unNow2 = unNow - timedelta(days=1)
-
-            d = str(unNow2)[0:10]
-
-            for figi in figiList:
-                self.candles_by_date_to_sqlite(figi[0], d, interval)
