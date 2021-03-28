@@ -378,7 +378,7 @@ class TinkofInvest:
     def candles_by_date_to_sqlite(self, figi, dateParam, interval):
         msg = f'get {figi} {interval} on {dateParam}'
         toLog(msg)
-        print(msg)
+        #print(msg)
         candlesList = self.get_candles_by_date(figi, dateParam, interval)
         cc = self.candle.sqlite_find_count(figi, dateParam, interval)
         #print(f'    api count: {len(candlesList)}')
@@ -388,7 +388,7 @@ class TinkofInvest:
                 if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
                     msg = f"insert {camdle['time']}"
                     toLog(msg)
-                    print(f"    insert into sqlite: {camdle['time']}")
+                    #print(f"    insert into sqlite: {camdle['time']}")
                     self.candle.load(camdle)
                     self.candle.sqlite_insert()
 
@@ -399,7 +399,7 @@ class TinkofInvest:
             0 - старт со вчера, 1 - с самой ранней даты + 1 день
         """
 
-        pl= self.get_list_portfolio()
+        pl = self.get_list_portfolio()
 
         now = datetime.now(tz=timezone('Europe/Moscow'))
 
@@ -410,17 +410,19 @@ class TinkofInvest:
 
             if getType == 1:
                 d = self.candle.sqlite_find_min_date(figi, interval)
-                if len(d) > 10:
-                    dateParam = datetime.strptime(d[0:10], "%Y-%m-%d") + timedelta(days=1)
+                if d != None:
+                    if len(d) > 10:
+                        dateParam = datetime.strptime(d[0:10], "%Y-%m-%d") + timedelta(days=1)
 
             while str(dateParam)[0:10] != self.candlesEndDate:
-                self.candles_by_date_to_sqlite(figi, dateParam, interval)
+                self.candles_by_date_to_sqlite(figi, str(dateParam)[0:10], interval)
 
                 dateParam = dateParam - timedelta(days=1)
 
-
     def all_candles_by_date_to_sqlite(self, interval):
         """
+        !!! нужен рефакторинг
+
         Запись исторических свечей по дням в БД SQLite всех инструментов рынка
         """
 
