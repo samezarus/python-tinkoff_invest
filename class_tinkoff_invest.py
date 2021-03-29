@@ -75,6 +75,7 @@ class TiCandle:
         self.t = ''        # время
 
     def sqlite_create_table(self):
+
         query = f'create table if not exists {self.tableName}' \
                 '(' \
                 'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
@@ -91,23 +92,24 @@ class TiCandle:
         sqlite_commit(self.dbFileName, query)
 
     def sqlite_insert(self):
-        query = f'insert or ignore into  {self.tableName}' \
-            '(figi, interval, open, close, height, low, volume, time) ' \
-            'VALUES(' \
-            f"'{self.figi}', " \
-            f"'{self.interval}', " \
-            f'{self.o}, ' \
-            f'{self.c}, ' \
-            f'{self.h}, ' \
-            f'{self.l}, ' \
-            f'{self.v}, ' \
-            f"'{self.t}'" \
-            ')'
-        sqlite_commit(self.dbFileName, query)
+        if not self.sqlite_find_candle(self.figi, self.t, self.interval):
+            query = f'insert into  {self.tableName}' \
+                '(figi, interval, open, close, height, low, volume, time) ' \
+                'VALUES(' \
+                f"'{self.figi}', " \
+                f"'{self.interval}', " \
+                f'{self.o}, ' \
+                f'{self.c}, ' \
+                f'{self.h}, ' \
+                f'{self.l}, ' \
+                f'{self.v}, ' \
+                f"'{self.t}'" \
+                ')'
+            sqlite_commit(self.dbFileName, query)
 
-        msg = f'    try insert {self.t}'
-        #print(msg)
-        toLog(msg)
+            msg = f'try insert {self.t}'
+            toLog(msg)
+            #print(msg)
 
     def load(self, candleRes):
         if len(candleRes) > 0:
@@ -252,15 +254,12 @@ class TiStock:
         sqlite_commit(self.dbFileName, query)
 
     def sqlite_insert(self):
-        query = f"select figi from {self.tableName} where figi='{self.figi}'"
-        rows = sqlite_result(self.dbFileName, query)
-
-        if len(rows) == 0:
+        if not self.sqlite_find_figi(self.figi):
             self.name = self.name.replace('\'', '')
 
             query = f'insert into {self.tableName}' \
-                    '(figi, ticker, isin, minPriceIncrement, lot, currency, name, type)' \
-                    'VALUES(' \
+                    f'(figi, ticker, isin, minPriceIncrement, lot, currency, name, type)' \
+                    f'VALUES(' \
                     f"'{self.figi}', " \
                     f"'{self.ticker}', " \
                     f"'{self.isin}', "\
@@ -300,6 +299,14 @@ class TiStock:
     def sqlite_get_all_figis(self):
         query = f"select figi from {self.tableName}"
         return sqlite_result(self.dbFileName, query)
+
+    def sqlite_find_figi(self, figi):
+        query = f"select figi from {self.tableName} where figi='{figi}'"
+        rows = sqlite_result(self.dbFileName, query)
+        if len(rows) == 0:
+            return False
+        else:
+            return True
 
 class TinkofInvest:
     """
@@ -415,29 +422,57 @@ class TinkofInvest:
     def candles_by_date_to_sqlite(self, figi, dateParam, interval):
         msg = f'get {figi} {interval} on {dateParam}'
         toLog(msg)
-        #print(msg)
+
         candlesList = self.get_candles_by_date(figi, dateParam, interval)
         cc = self.candle.sqlite_find_count(figi, dateParam, interval)
-        #print(f'    api count: {len(candlesList)}')
-        #print(f'    sqlite count: {cc}')
         if len(candlesList) != int(cc):
             for camdle in candlesList:
-                #if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
-                    #msg = f"insert {camdle['time']}"
-                    #toLog(msg)
-                    #print(f"    insert into sqlite: {camdle['time']}")
                 self.candle.load(camdle)
                 self.candle.sqlite_insert()
 
-    def portfolio_candles_by_date_to_sqlite(self, interval, getType):
+    def candles_by_figi_list_to_sqlite(self, interval, getType, figiList):
         """
-        !!! нужно упрознить до функции которая обрабатывает переданный ей лист из figi !!!
-
         Запись исторических свечей по дням в БД SQLite относительно инструментов в портфолио
         :getType: влияеет на дату с которой получаюся данные.
             0 - старт со вчера, 1 - с самой ранней даты + 1 день
         """
 
+        now = datetime.now(tz=timezone('Europe/Moscow'))
+
+        for figi in figiList:
+            dateParam = now
+
+            if getType == 1:
+                d = self.candle.sqlite_find_min_date(figi, interval)
+                if d != None:
+                    if len(d) > 10:
+                        dateParam = datetime.strptime(d[0:10], "%Y-%m-%d") + timedelta(days=1)
+
+            while str(dateParam)[0:10] != self.candlesEndDate:
+                d = str(dateParam)[0:10]
+                print(d)
+                self.candles_by_date_to_sqlite(figi, d, interval)
+
+
+                dateParam = dateParam - timedelta(days=1)
+
+    def portfolio_candles_by_figi_list_to_sqlite(self, interval, getType):
+        figiList = []
+        portfolioList = self.get_list_portfolio()
+
+        for item in portfolioList:
+            figiList.append(item['figi'])
+
+        self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
+
+    def all_figis_candles_by_figi_list_to_sqlite(self, interval, getType):
+        figiList = self.stock.sqlite_get_all_figis()
+
+        print(figiList)
+        #self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
+
+"""
+    def portfolio_candles_by_date_to_sqlite(self, interval, getType):
         pl = self.get_list_portfolio()
 
         now = datetime.now(tz=timezone('Europe/Moscow'))
@@ -445,7 +480,7 @@ class TinkofInvest:
         for pi in pl:
             dateParam = now
             figi = pi['figi']
-            print(figi)
+            #print(figi)
 
             if getType == 1:
                 d = self.candle.sqlite_find_min_date(figi, interval)
@@ -457,3 +492,4 @@ class TinkofInvest:
                 self.candles_by_date_to_sqlite(figi, str(dateParam)[0:10], interval)
 
                 dateParam = dateParam - timedelta(days=1)
+"""

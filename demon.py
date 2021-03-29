@@ -11,4 +11,4 @@ ti = class_tinkoff_invest.TinkofInvest()
 ti.set_params()
 
 # Запись в БД свечей из списка портфолио
-ti.portfolio_candles_by_date_to_sqlite('1min', 1)
+ti.portfolio_candles_by_figi_list_to_sqlite('1min', 0)
