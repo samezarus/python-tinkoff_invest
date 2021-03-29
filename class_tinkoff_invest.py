@@ -91,20 +91,23 @@ class TiCandle:
         sqlite_commit(self.dbFileName, query)
 
     def sqlite_insert(self):
-        if not self.sqlite_find_candle(self.figi, self.t, self.interval):
-            query = f'insert into {self.tableName}' \
+        query = f'insert or ignore into  {self.tableName}' \
             '(figi, interval, open, close, height, low, volume, time) ' \
-                    'VALUES(' \
-                    f"'{self.figi}', " \
-                    f"'{self.interval}', " \
-                    f'{self.o}, ' \
-                    f'{self.c}, ' \
-                    f'{self.h}, ' \
-                    f'{self.l}, ' \
-                    f'{self.v}, ' \
-                    f"'{self.t}'" \
-                    ')'
-            sqlite_commit(self.dbFileName, query)
+            'VALUES(' \
+            f"'{self.figi}', " \
+            f"'{self.interval}', " \
+            f'{self.o}, ' \
+            f'{self.c}, ' \
+            f'{self.h}, ' \
+            f'{self.l}, ' \
+            f'{self.v}, ' \
+            f"'{self.t}'" \
+            ')'
+        sqlite_commit(self.dbFileName, query)
+
+        msg = f'    try insert {self.t}'
+        #print(msg)
+        toLog(msg)
 
     def load(self, candleRes):
         if len(candleRes) > 0:
@@ -370,14 +373,6 @@ class TinkofInvest:
                 if chek_key('payload', jStr):
                     if chek_key('positions', jStr['payload']):
                         result = jStr['payload']['positions']
-        """
-        restResult = self.get_data_portfolio()
-        if restResult != None:
-            if restResult.status_code == 200:
-                jStr = json.loads(restResult.content)
-                for item in jStr['payload']['positions']:
-                    instrumentsList.append(item)
-        """
 
         return result
 
@@ -392,7 +387,7 @@ class TinkofInvest:
         :return: список из словарей вида: {"o": 0.0, "c": 0.0, "h": 0.0, "l": 0.0, "v": 00, "time": "2007-07-23T07:00:00Z", "interval": "day", "figi": "BBG00DL8NMV2"}
         """
 
-        candlesList = []
+        result = []
 
         url = f'market/candles?figi={figi}&from={dtToUrlFormat(d1)}&to={dtToUrlFormat(d2)}&interval={interval}'
         candlesData = self.get_data(url)
@@ -402,10 +397,9 @@ class TinkofInvest:
                 jStr = json.loads(candlesData.content)
                 if chek_key('payload', jStr):
                     if chek_key('candles', jStr['payload']):
-                        for item in jStr['payload']['candles']:
-                            candlesList.append(item)
+                        result = jStr['payload']['candles']
 
-        return candlesList
+        return result
 
     def get_candles_by_date(self, figi, dateParam, interval):
         """
@@ -428,12 +422,12 @@ class TinkofInvest:
         #print(f'    sqlite count: {cc}')
         if len(candlesList) != int(cc):
             for camdle in candlesList:
-                if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
-                    msg = f"insert {camdle['time']}"
-                    toLog(msg)
+                #if not self.candle.sqlite_find_candle(camdle['figi'], camdle['time'], camdle['interval']):
+                    #msg = f"insert {camdle['time']}"
+                    #toLog(msg)
                     #print(f"    insert into sqlite: {camdle['time']}")
-                    self.candle.load(camdle)
-                    self.candle.sqlite_insert()
+                self.candle.load(camdle)
+                self.candle.sqlite_insert()
 
     def portfolio_candles_by_date_to_sqlite(self, interval, getType):
         """
