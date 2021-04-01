@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pytz import timezone
 import sqlite3
 import hashlib
+import os
 
 
 def dtToUrlFormat(dtStr):
@@ -92,7 +93,8 @@ class TiCandle:
         sqlite_commit(self.dbFileName, query)
 
     def sqlite_insert(self):
-        if not self.sqlite_find_candle(self.figi, self.t, self.interval):
+        if True:
+        #if not self.sqlite_find_candle(self.figi, self.t, self.interval):
             query = f'insert into  {self.tableName}' \
                 '(figi, interval, open, close, height, low, volume, time) ' \
                 'VALUES(' \
@@ -107,8 +109,8 @@ class TiCandle:
                 ')'
             sqlite_commit(self.dbFileName, query)
 
-            msg = f'try insert {self.t}'
-            toLog(msg)
+            #msg = f'try insert {self.t}'
+            #toLog(msg)
             #print(msg)
 
     def load(self, candleRes):
@@ -404,7 +406,8 @@ class TinkofInvest:
                 jStr = json.loads(candlesData.content)
                 if chek_key('payload', jStr):
                     if chek_key('candles', jStr['payload']):
-                        result = jStr['payload']['candles']
+                        #result = jStr['payload']['candles']
+                        result = jStr
 
         return result
 
@@ -430,6 +433,32 @@ class TinkofInvest:
                 self.candle.load(camdle)
                 self.candle.sqlite_insert()
 
+    def portfolio_candles_by_date_to_file(self, interval):
+        figiList = self.get_list_portfolio()
+
+        now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
+
+        for figi in figiList:
+            dateParam = now
+
+            while str(dateParam)[0:10] != self.candlesEndDate:
+                d = str(dateParam)[0:10]
+
+                folder = f"./figis/{figi['figi']}"
+                print(f"{figi['figi']} - {d}")
+
+                if not os.path.exists(folder):
+                    os.makedirs(folder)
+
+                figiFile = f"{folder}/{d}.txt"
+
+                if not os.path.isfile(figiFile):
+                    candlesList = self.get_candles_by_date(figi['figi'], d, interval)
+                    with open(figiFile, 'w') as fp:
+                        json.dump(candlesList, fp)
+
+                dateParam = dateParam - timedelta(days=1)
+
     def candles_by_figi_list_to_sqlite(self, interval, getType, figiList):
         """
         Запись исторических свечей по дням в БД SQLite относительно инструментов в портфолио
@@ -449,10 +478,10 @@ class TinkofInvest:
                         dateParam = datetime.strptime(d[0:10], "%Y-%m-%d") + timedelta(days=1)
 
             while str(dateParam)[0:10] != self.candlesEndDate:
-                d = str(dateParam)[0:10]
-                print(d)
-                self.candles_by_date_to_sqlite(figi, d, interval)
+                #print(f'{figi} on {dateParam}')
 
+                d = str(dateParam)[0:10]
+                self.candles_by_date_to_sqlite(figi, d, interval)
 
                 dateParam = dateParam - timedelta(days=1)
 
@@ -461,15 +490,25 @@ class TinkofInvest:
         portfolioList = self.get_list_portfolio()
 
         for item in portfolioList:
-            figiList.append(item['figi'])
+            figi = item['figi']
+            figiList.append(figi)
+
+            msg = f'{figi}'
+            toLog(msg)
 
         self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
 
     def all_figis_candles_by_figi_list_to_sqlite(self, interval, getType):
-        figiList = self.stock.sqlite_get_all_figis()
+        figiList = []
+        for item in self.stock.sqlite_get_all_figis():
+            figi = item[0]
+            figiList.append(figi)
 
-        print(figiList)
-        #self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
+            msg = f'{figi}'
+            toLog(msg)
+
+
+        self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
 
 """
     def portfolio_candles_by_date_to_sqlite(self, interval, getType):
