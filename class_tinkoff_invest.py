@@ -52,9 +52,9 @@ def chek_key(key, struc):
     except:
         return False
 
-def toLog(msg):
+def toLog(status, msg):
     logFile = open('log.txt', 'a')
-    logFile.write(f'{datetime.now()} - {msg} \r\n')
+    logFile.write(f"[{datetime.now()} [{status}] [{msg}] \r\n")
     logFile.close()
 
 
@@ -445,7 +445,7 @@ class TinkofInvest:
                 d = str(dateParam)[0:10]
 
                 folder = f"./figis/{figi['figi']}"
-                print(f"{figi['figi']} - {d}")
+
 
                 if not os.path.exists(folder):
                     os.makedirs(folder)
@@ -456,6 +456,7 @@ class TinkofInvest:
                     candlesList = self.get_candles_by_date(figi['figi'], d, interval)
                     with open(figiFile, 'w') as fp:
                         json.dump(candlesList, fp)
+                        toLog('INFO', f"save to file:  {figiFile}")
 
                 dateParam = dateParam - timedelta(days=1)
 
