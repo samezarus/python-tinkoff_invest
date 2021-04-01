@@ -433,7 +433,7 @@ class TinkofInvest:
                 self.candle.load(camdle)
                 self.candle.sqlite_insert()
 
-    def portfolio_candles_by_date_to_file(self, interval):
+    def portfolio_candles_to_file(self, interval):
         figiList = self.get_list_portfolio()
 
         now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
@@ -453,6 +453,32 @@ class TinkofInvest:
 
                 if not os.path.isfile(figiFile):
                     candlesList = self.get_candles_by_date(figi['figi'], d, interval)
+                    with open(figiFile, 'w') as fp:
+                        json.dump(candlesList, fp)
+                        toLog('INFO', f"save to file:  {figiFile}")
+
+                dateParam = dateParam - timedelta(days=1)
+
+    def all_figis_candles_to_file(self, interval):
+        figiList = self.stock.sqlite_get_all_figis()
+
+        now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
+
+        for figi in figiList:
+            dateParam = now
+
+            while str(dateParam)[0:10] != self.candlesEndDate:
+                d = str(dateParam)[0:10]
+
+                folder = f"./figis/{figi[0]}"
+
+                if not os.path.exists(folder):
+                    os.makedirs(folder)
+
+                figiFile = f"{folder}/{d}.txt"
+
+                if not os.path.isfile(figiFile):
+                    candlesList = self.get_candles_by_date(figi[0], d, interval)
                     with open(figiFile, 'w') as fp:
                         json.dump(candlesList, fp)
                         toLog('INFO', f"save to file:  {figiFile}")

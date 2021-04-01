@@ -16,7 +16,8 @@ ti.set_params()
 
 #ti.all_figis_candles_by_figi_list_to_sqlite('1min', 0)
 
-ti.portfolio_candles_by_date_to_file('1min')
+ti.portfolio_candles_to_file('1min')
+ti.all_figis_candles_to_file('1min')
 
 """
 with open('test.txt', 'r') as j:
