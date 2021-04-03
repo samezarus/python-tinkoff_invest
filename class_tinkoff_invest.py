@@ -52,7 +52,7 @@ def chek_key(key, struc):
     except:
         return False
 
-def toLog(status, msg):
+def to_log(status, msg):
     logFile = open('log.txt', 'a')
     logFile.write(f"[{datetime.now()} [{status}] [{msg}] \r\n")
     logFile.close()
@@ -62,9 +62,10 @@ class TiCandle:
     """
     Класс свечи
     """
-    def __init__(self, dbFileName, candleRes):
-        self.tableName = 'tiCandles'
-        self.dbFileName = dbFileName
+    def __init__(self, dbFileName):
+        self.tableName = 'tiCandles' # Имя таблицы в БД
+        self.dbFileName = dbFileName # Путь к фалу БД
+        #self.candleStruct = None     # Структура свечи в виде словаря
         #
         self.figi = ''     # идентификатор инструмента
         self.o = 0.0       # цена при открытии (open)
@@ -92,37 +93,38 @@ class TiCandle:
 
         sqlite_commit(self.dbFileName, query)
 
-    def sqlite_insert(self):
-        if True:
-        #if not self.sqlite_find_candle(self.figi, self.t, self.interval):
-            query = f'insert into  {self.tableName}' \
-                '(figi, interval, open, close, height, low, volume, time) ' \
-                'VALUES(' \
-                f"'{self.figi}', " \
-                f"'{self.interval}', " \
-                f'{self.o}, ' \
-                f'{self.c}, ' \
-                f'{self.h}, ' \
-                f'{self.l}, ' \
-                f'{self.v}, ' \
-                f"'{self.t}'" \
-                ')'
-            sqlite_commit(self.dbFileName, query)
+    def sqlite_un_duplication_insert(self, candleStruct):
+        """
+        Вставку в таблицу с проверкой на дублирование
+        """
 
-            #msg = f'try insert {self.t}'
-            #toLog(msg)
-            #print(msg)
+        query = f"INSERT INTO {self.tableName}(figi, interval, open, close, height, low, volume, time) " \
+                f"SELECT " \
+                f"'{candleStruct['figi']}', " \
+                f"'{candleStruct['interval']}', " \
+                f"{candleStruct['o']}, " \
+                f"{candleStruct['c']}, " \
+                f"{candleStruct['h']}," \
+                f"{candleStruct['l']}, " \
+                f"{candleStruct['v']}, " \
+                f"'{candleStruct['time']}' " \
+                f"WHERE NOT EXISTS(SELECT 1 FROM {self.tableName} WHERE " \
+                f"figi='{candleStruct['figi']}' and " \
+                f"interval='{candleStruct['interval']}' and " \
+                f"time='{candleStruct['time']}'" \
+                f")"
+
+        sqlite_commit(self.dbFileName, query)
 
     def load(self, candleRes):
-        if len(candleRes) > 0:
-            self.figi = candleRes['figi']
-            self.o = candleRes['o']
-            self.c = candleRes['c']
-            self.h = candleRes['h']
-            self.l = candleRes['l']
-            self.v = candleRes['v']
-            self.interval = candleRes['interval']
-            self.t = candleRes['time']
+        self.figi = candleRes['figi']
+        self.o = candleRes['o']
+        self.c = candleRes['c']
+        self.h = candleRes['h']
+        self.l = candleRes['l']
+        self.v = candleRes['v']
+        self.interval = candleRes['interval']
+        self.t = candleRes['time']
 
     def sqlite_find_candle(self, figi, dateParam, interval):
         """
@@ -340,6 +342,7 @@ class TinkofInvest:
             self.commission = confParams['commission']  # Базовая комиссия при операциях
             self.sqliteDB = confParams['sqliteDB']
             self.candlesEndDate = confParams['candlesEndDate']
+            self.figisExportFolder = confParams['figisExportFolder']
 
         finally:
             confFile.close()
@@ -352,7 +355,7 @@ class TinkofInvest:
         self.stock.sqlite_update(stocks)
 
         # Создаём таблицу tiCandles
-        self.candle = TiCandle(self.sqliteDB, '')
+        self.candle = TiCandle(self.sqliteDB)
         self.candle.sqlite_create_table()
 
     def get_data(self, dataPref):
@@ -444,7 +447,7 @@ class TinkofInvest:
             while str(dateParam)[0:10] != self.candlesEndDate:
                 d = str(dateParam)[0:10]
 
-                folder = f"./figis/{figi['figi']}"
+                folder = f"{self.figisExportFolder}/{figi['figi']}"
 
                 if not os.path.exists(folder):
                     os.makedirs(folder)
@@ -455,7 +458,7 @@ class TinkofInvest:
                     candlesList = self.get_candles_by_date(figi['figi'], d, interval)
                     with open(figiFile, 'w') as fp:
                         json.dump(candlesList, fp)
-                        toLog('INFO', f"save to file:  {figiFile}")
+                        to_log('INFO', f"save to file:  {figiFile}")
 
                 dateParam = dateParam - timedelta(days=1)
 
@@ -481,9 +484,35 @@ class TinkofInvest:
                     candlesList = self.get_candles_by_date(figi[0], d, interval)
                     with open(figiFile, 'w') as fp:
                         json.dump(candlesList, fp)
-                        toLog('INFO', f"save to file:  {figiFile}")
+                        to_log('INFO', f"save to file:  {figiFile}")
 
                 dateParam = dateParam - timedelta(days=1)
+
+    def candles_from_files_to_sqlite(self):
+        """"""
+
+        for folder in os.scandir('./figis'):
+            if folder.is_dir():
+                folderPath = f'{folder.path}/'
+                figi = folder.name
+                to_log('INFO', f'INSERT INTO SQLITE: {figi}')
+
+                for figiFile in os.scandir(folderPath):
+                    if figiFile.is_file():
+                        figiFilePath = figiFile.path
+                        date = figiFile.name[0:-4]
+
+                        with open(figiFilePath, 'r') as j:
+                            jsonBody = json.load(j)
+
+                            candlesList = jsonBody['payload']['candles']
+
+                            to_log('INFO', f'    ON DATE: {date}')
+
+                            for candle in candlesList:
+                                self.candle.sqlite_un_duplication_insert(candle)
+
+                            to_log('INFO', f'    COUNT figis: {len(candlesList)}')
 
     def candles_by_figi_list_to_sqlite(self, interval, getType, figiList):
         """
@@ -535,26 +564,3 @@ class TinkofInvest:
 
 
         self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
-
-"""
-    def portfolio_candles_by_date_to_sqlite(self, interval, getType):
-        pl = self.get_list_portfolio()
-
-        now = datetime.now(tz=timezone('Europe/Moscow'))
-
-        for pi in pl:
-            dateParam = now
-            figi = pi['figi']
-            #print(figi)
-
-            if getType == 1:
-                d = self.candle.sqlite_find_min_date(figi, interval)
-                if d != None:
-                    if len(d) > 10:
-                        dateParam = datetime.strptime(d[0:10], "%Y-%m-%d") + timedelta(days=1)
-
-            while str(dateParam)[0:10] != self.candlesEndDate:
-                self.candles_by_date_to_sqlite(figi, str(dateParam)[0:10], interval)
-
-                dateParam = dateParam - timedelta(days=1)
-"""
