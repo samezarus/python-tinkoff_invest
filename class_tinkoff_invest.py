@@ -116,6 +116,87 @@ class TiCandle:
 
         sqlite_commit(self.dbFileName, query)
 
+    def sqlite_multi_insert(self, candlesList, figi, dateParam, interval):
+        """
+        Вставка списка свечей (!!! БЕЗ ПРОВЕРКИ).
+        Используется когда заведомо известно, что этих свечей нет в БД.
+        К примеру, если в БД нет записей на дату свечей в списке, то инсёртим все.
+        """
+
+        # Если в списке свечей, есть хоть одна
+        if len(candlesList) > 0:
+            # Создаём курсор для манипуляции с sqlite
+            sqliteConnection = sqlite3.connect(self.dbFileName)
+            sqliteCursor = sqliteConnection.cursor()
+
+            # Запрос на поиск количества записей в БД с искомыми figi, началом даты(ГГГГ-ММ-ДД) и интервалом
+            query = f"select " \
+                    f"  count(figi) " \
+                    f"from " \
+                    f"  {self.tableName} " \
+                    f"where " \
+                    f"  figi='{figi}' and " \
+                    f"  interval='{interval}' and " \
+                    f"  time like '{dateParam}%' "
+            sqliteCursor.execute(query)
+            rows = sqliteCursor.fetchall()
+
+            # Если в БД не найдино ни одной записи, то делаем мульти инсёрт
+            if rows[0][0] == 0:
+                valuesString = ''
+
+                # Формируем строку мультизначений свечей
+                for candleStruct in candlesList:
+                    valuesString += '(' \
+                                    f"'{candleStruct['figi']}', " \
+                                    f"'{candleStruct['interval']}', " \
+                                    f"{candleStruct['o']}, " \
+                                    f"{candleStruct['c']}, " \
+                                    f"{candleStruct['h']}," \
+                                    f"{candleStruct['l']}, " \
+                                    f"{candleStruct['v']}, " \
+                                    f"'{candleStruct['time']}' " \
+                                    '), '
+
+                #Обрезаем последнюю запятую
+                valuesString = valuesString[0:-2]
+
+                # Запрос на мульти инсёрт в БД
+                query = f"INSERT INTO {self.tableName}(figi, interval, open, close, height, low, volume, time) " \
+                        f"VALUES " \
+                        f"{valuesString}"
+
+                sqliteCursor.execute(query)
+                sqliteConnection.commit()
+                to_log('INFO', f'    Мультиинсёрт: {figi} - {dateParam} - {interval}')
+            # Если в БД присутствует хоть одна запись, то перебираем весь лист по элементно
+            else:
+                # Если количество найденых свкчей в БД не равно количеству свечей candlesList
+                if rows[0][0] != len(candlesList):
+                    for candleStruct in candlesList:
+                        # Запрос на вставку с проверкой на дублирование
+                        query = f"INSERT INTO {self.tableName}(figi, interval, open, close, height, low, volume, time) " \
+                                f"SELECT " \
+                                f"'{candleStruct['figi']}', " \
+                                f"'{candleStruct['interval']}', " \
+                                f"{candleStruct['o']}, " \
+                                f"{candleStruct['c']}, " \
+                                f"{candleStruct['h']}," \
+                                f"{candleStruct['l']}, " \
+                                f"{candleStruct['v']}, " \
+                                f"'{candleStruct['time']}' " \
+                                f"WHERE NOT EXISTS(SELECT 1 FROM {self.tableName} WHERE " \
+                                f"figi='{candleStruct['figi']}' and " \
+                                f"interval='{candleStruct['interval']}' and " \
+                                f"time='{candleStruct['time']}'" \
+                                f")"
+                        sqliteCursor.execute(query)
+                        sqliteConnection.commit()
+                        to_log('INFO', f'Попытка дописать в БД: {figi} - {dateParam} - {interval}')
+
+            # Закрываем соединение с БД
+            sqliteConnection.close()
+
     def load(self, candleRes):
         self.figi = candleRes['figi']
         self.o = candleRes['o']
@@ -427,7 +508,7 @@ class TinkofInvest:
 
     def candles_by_date_to_sqlite(self, figi, dateParam, interval):
         msg = f'get {figi} {interval} on {dateParam}'
-        toLog(msg)
+        to_log('INFO', msg)
 
         candlesList = self.get_candles_by_date(figi, dateParam, interval)
         cc = self.candle.sqlite_find_count(figi, dateParam, interval)
@@ -473,7 +554,7 @@ class TinkofInvest:
             while str(dateParam)[0:10] != self.candlesEndDate:
                 d = str(dateParam)[0:10]
 
-                folder = f"./figis/{figi[0]}"
+                folder = f"{self.figisExportFolder}/{figi[0]}"
 
                 if not os.path.exists(folder):
                     os.makedirs(folder)
@@ -488,31 +569,27 @@ class TinkofInvest:
 
                 dateParam = dateParam - timedelta(days=1)
 
-    def candles_from_files_to_sqlite(self):
+    def candles_from_files_to_sqlite(self, interval):
         """"""
 
-        for folder in os.scandir('./figis'):
+        for folder in os.scandir(f'{self.figisExportFolder}'):
             if folder.is_dir():
                 folderPath = f'{folder.path}/'
                 figi = folder.name
-                to_log('INFO', f'INSERT INTO SQLITE: {figi}')
+                to_log('INFO', f'Обработка каталога: {folderPath}')
 
                 for figiFile in os.scandir(folderPath):
                     if figiFile.is_file():
                         figiFilePath = figiFile.path
-                        date = figiFile.name[0:-4]
+                        to_log('INFO', f'Обработка файла: {figiFilePath}')
+                        dateParam = figiFile.name[0:-4]
 
                         with open(figiFilePath, 'r') as j:
                             jsonBody = json.load(j)
 
                             candlesList = jsonBody['payload']['candles']
 
-                            to_log('INFO', f'    ON DATE: {date}')
-
-                            for candle in candlesList:
-                                self.candle.sqlite_un_duplication_insert(candle)
-
-                            to_log('INFO', f'    COUNT figis: {len(candlesList)}')
+                            self.candle.sqlite_multi_insert(candlesList, figi, dateParam, interval)
 
     def candles_by_figi_list_to_sqlite(self, interval, getType, figiList):
         """
@@ -549,7 +626,7 @@ class TinkofInvest:
             figiList.append(figi)
 
             msg = f'{figi}'
-            toLog(msg)
+            to_log('INFO', msg)
 
         self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
 
@@ -560,7 +637,6 @@ class TinkofInvest:
             figiList.append(figi)
 
             msg = f'{figi}'
-            toLog(msg)
-
+            to_log('INFO', msg)
 
         self.candles_by_figi_list_to_sqlite(interval, getType, figiList)

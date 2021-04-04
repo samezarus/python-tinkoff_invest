@@ -12,10 +12,10 @@ import os
 ti = class_tinkoff_invest.TinkofInvest()
 ti.set_params()
 
-#ti.candles_from_files_to_sqlite()
+ti.candles_from_files_to_sqlite('1min')
 
-ti.portfolio_candles_to_file('1min')
-ti.all_figis_candles_to_file('1min')
+#ti.portfolio_candles_to_file('1min')
+#ti.all_figis_candles_to_file('1min')
 
 
 """
