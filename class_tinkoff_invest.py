@@ -5,6 +5,7 @@ import requests # pip3 install requests
 import pymysql # pip3 install PyMySQL
 from datetime import datetime, timedelta
 from pytz import timezone # pip3 install pytz
+from multiprocessing import Pool
 
 def dtToUrlFormat(dtStr):
     """
@@ -264,7 +265,78 @@ class TinkoffInvest:
                 with open(figiFile, 'w') as fp:
                     json.dump(res['json'], fp)
 
+    def figi_from_files_to_mysql(self, folderName):
+        dbFlag = True
+
+        try:
+            db = pymysql.connect(host=self.mysqlHost,
+                                 user=self.mySqlUser,
+                                 password=self.mySqlPassword,
+                                 database=self.mySqlDb)
+        except:
+            dbFlag = False
+            self.logger.error('Не удалось подключиться к БД')
+
+        if dbFlag:
+            filesList = os.scandir(folderName)
+            for figiFile in filesList:
+                if figiFile.is_file():
+                    query = f"select fileName from files_processing where fileName='{format_filename(figiFile.path)}'"
+                    res = mysql_execute(db, query, False, 'one')
+                    # print(res)
+                    if res == None:
+                        with open(figiFile.path, 'r') as j:
+                            jsonBody = json.load(j)
+                            candlesList = None
+
+                            try:
+                                candlesList = jsonBody['payload']['candles']
+                            except:
+                                candlesList = []
+
+                            for candle in candlesList:
+                                t = candle['time'][:-4]
+                                query = f'INSERT INTO figis(o, c, h, l, v, time, intervalTime, figi) ' \
+                                        f'SELECT ' \
+                                        f"{candle['o']}, " \
+                                        f"{candle['c']}, " \
+                                        f"{candle['h']}, " \
+                                        f"{candle['l']}, " \
+                                        f"{candle['v']}, " \
+                                        f"'{t}', " \
+                                        f"'{candle['interval']}', " \
+                                        f"'{candle['figi']}' " \
+                                        f'FROM (SELECT 1) as dummytable ' \
+                                        f"WHERE NOT EXISTS (SELECT 1 FROM figis WHERE " \
+                                        f"figi='{candle['figi']}' and " \
+                                        f"intervalTime='{candle['interval']}' and " \
+                                        f"time='{t}'" \
+                                        f')'
+                                # print(query)
+                                mysql_execute(db, query, True, 'one')
+                                # self.logger.info(f"В БД добавлены свечи инструмента {candle['figi']} на дату {candle['time']}")
+
+                            query = f"INSERT IGNORE INTO files_processing(fileName) VALUES('{format_filename(figiFile.path)}')"
+                            mysql_execute(db, query, True, 'one')
+                            self.logger.info(f"Файл {figiFile.path} записан в БД, как обработанный")
+
+                    os.remove(figiFile.path)
+                    self.logger.info(f'Удалён файл {figiFile.path}')
+
     def figis_from_files_to_mysql(self):
+        folders = []
+        for folder in os.scandir(f'{self.exportFolder}/figis'):
+            folders.append(folder.path)
+            #print(f'{folder.path}')
+            #self.figi_from_files_to_mysql(folder.path)
+
+        p = Pool(100)
+        with p:
+            p.map(self.figi_from_files_to_mysql, folders)
+            p.close()
+            p.join()
+
+        """
         dbFlag = True
 
         try:
@@ -327,8 +399,7 @@ class TinkoffInvest:
 
                         os.remove(figiFile.path)
                         self.logger.info(f'Удалён файл {figiFile.path}')
-
-
+        """
 if __name__ == "__main__":
     try:
         os.remove('log.txt')
