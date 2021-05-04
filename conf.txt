@@ -1,8 +1,12 @@
 {
     "restUrl":"https://api-invest.tinkoff.ru/openapi/",
-	"apiToken":"...",
+	"apiToken":"",
     "commission":0.05,
 	"sqliteDB":"tinkofInvest.db",
 	"candlesEndDate":"2021-03-01",
-	"figisExportFolder":"./figis"
+	"exportFolder":"./data",
+	"mysqlHost":"localhost",
+	"mySqlDb":"tinkoff_invest",
+	"mySqlUser":"admin",
+	"mySqlPassword":"password"
 }

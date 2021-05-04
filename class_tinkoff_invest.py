@@ -1,10 +1,10 @@
 import os
 import logging
 import json
-import requests # pip install requests
-import pymysql #pip3 install PyMySQL
+import requests # pip3 install requests
+import pymysql # pip3 install PyMySQL
 from datetime import datetime, timedelta
-from pytz import timezone # pip install pytz
+from pytz import timezone # pip3 install pytz
 
 def dtToUrlFormat(dtStr):
     """
