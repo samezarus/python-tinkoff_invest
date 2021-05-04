@@ -1,11 +1,10 @@
-import json
-import requests
-from datetime import datetime, timedelta
-from pytz import timezone
-import sqlite3
-import hashlib
 import os
-
+import logging
+import json
+import requests # pip install requests
+import pymysql #pip3 install PyMySQL
+from datetime import datetime, timedelta
+from pytz import timezone # pip install pytz
 
 def dtToUrlFormat(dtStr):
     """
@@ -23,451 +22,182 @@ def dtToUrlFormat(dtStr):
 
     return result
 
-def sqlite_result(dbFileName, query):
-    sqliteConnection = sqlite3.connect(dbFileName)
-    sqliteCursor = sqliteConnection.cursor()
-    #print(query)
-    sqliteCursor.execute(query)
-    result = sqliteCursor.fetchall()
-    sqliteConnection.close()
-    return result
-
-def sqlite_commit(dbFileName, query):
-    """
-    Функция выполняет запрос к БД и комитит
-    Предназначена для создания, добавления и изменения в таблицах
-    :param dbFileName: Имя фала БД SQLite
-    :param query:
-    """
-    sqliteConnection = sqlite3.connect(dbFileName)
-    sqliteCursor = sqliteConnection.cursor()
-    sqliteCursor.execute(query)
-    sqliteConnection.commit()
-    sqliteConnection.close()
-
-def chek_key(key, struc):
+def chek_key(key):
+    """ нет смысла в ней """
     try:
-        if key in struc:
-           return True
+        x = key
+        return True
     except:
         return False
 
-def to_log(status, msg):
-    logFile = open('log.txt', 'a')
-    logFile.write(f"[{datetime.now()} [{status}] [{msg}] \r\n")
-    logFile.close()
+def get_data(url, headers):
+    try:
+        return requests.get(url=url, headers=headers)
+    except:
+        return None
 
-
-class TiCandle:
+def mysql_execute(dbConnection, query, commitFlag, resultType):
     """
-    Класс свечи
-    """
-    def __init__(self, dbFileName):
-        self.tableName = 'tiCandles' # Имя таблицы в БД
-        self.dbFileName = dbFileName # Путь к фалу БД
-        #self.candleStruct = None     # Структура свечи в виде словаря
-        #
-        self.figi = ''     # идентификатор инструмента
-        self.o = 0.0       # цена при открытии (open)
-        self.c = 0.0       # цена при закрытии (close)
-        self.h = 0.0       # максимальная цена (height)
-        self.l = 0.0       # минимальная цена (low)
-        self.v = 0         # объём (volume)
-        self.interval = '' # Интервал за который получаем свечу
-        self.t = ''        # время
+    Функция для выполнния любых типов запросов к MySQL
 
-    def sqlite_create_table(self):
-
-        query = f'create table if not exists {self.tableName}' \
-                '(' \
-                'candleID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-                'figi text,' \
-                'interval text,' \
-                'open double,' \
-                'close double,' \
-                'height double,' \
-                'low double,' \
-                'volume int,' \
-                'time text' \
-                ')'
-
-        sqlite_commit(self.dbFileName, query)
-
-    def sqlite_un_duplication_insert(self, candleStruct):
-        """
-        Вставку в таблицу с проверкой на дублирование
-        """
-
-        query = f"INSERT INTO {self.tableName}(figi, interval, open, close, height, low, volume, time) " \
-                f"SELECT " \
-                f"'{candleStruct['figi']}', " \
-                f"'{candleStruct['interval']}', " \
-                f"{candleStruct['o']}, " \
-                f"{candleStruct['c']}, " \
-                f"{candleStruct['h']}," \
-                f"{candleStruct['l']}, " \
-                f"{candleStruct['v']}, " \
-                f"'{candleStruct['time']}' " \
-                f"WHERE NOT EXISTS(SELECT 1 FROM {self.tableName} WHERE " \
-                f"figi='{candleStruct['figi']}' and " \
-                f"interval='{candleStruct['interval']}' and " \
-                f"time='{candleStruct['time']}'" \
-                f")"
-
-        sqlite_commit(self.dbFileName, query)
-
-    def sqlite_multi_insert(self, candlesList, figi, dateParam, interval):
-        """
-        Вставка списка свечей (!!! БЕЗ ПРОВЕРКИ).
-        Используется когда заведомо известно, что этих свечей нет в БД.
-        К примеру, если в БД нет записей на дату свечей в списке, то инсёртим все.
-        """
-
-        # Если в списке свечей, есть хоть одна
-        if len(candlesList) > 0:
-            # Создаём курсор для манипуляции с sqlite
-            sqliteConnection = sqlite3.connect(self.dbFileName)
-            sqliteCursor = sqliteConnection.cursor()
-
-            # Запрос на поиск количества записей в БД с искомыми figi, началом даты(ГГГГ-ММ-ДД) и интервалом
-            query = f"select " \
-                    f"  count(figi) " \
-                    f"from " \
-                    f"  {self.tableName} " \
-                    f"where " \
-                    f"  figi='{figi}' and " \
-                    f"  interval='{interval}' and " \
-                    f"  time like '{dateParam}%' "
-            sqliteCursor.execute(query)
-            rows = sqliteCursor.fetchall()
-
-            # Если в БД не найдино ни одной записи, то делаем мульти инсёрт
-            if rows[0][0] == 0:
-                valuesString = ''
-
-                # Формируем строку мультизначений свечей
-                for candleStruct in candlesList:
-                    valuesString += '(' \
-                                    f"'{candleStruct['figi']}', " \
-                                    f"'{candleStruct['interval']}', " \
-                                    f"{candleStruct['o']}, " \
-                                    f"{candleStruct['c']}, " \
-                                    f"{candleStruct['h']}," \
-                                    f"{candleStruct['l']}, " \
-                                    f"{candleStruct['v']}, " \
-                                    f"'{candleStruct['time']}' " \
-                                    '), '
-
-                #Обрезаем последнюю запятую
-                valuesString = valuesString[0:-2]
-
-                # Запрос на мульти инсёрт в БД
-                query = f"INSERT INTO {self.tableName}(figi, interval, open, close, height, low, volume, time) " \
-                        f"VALUES " \
-                        f"{valuesString}"
-
-                sqliteCursor.execute(query)
-                sqliteConnection.commit()
-                to_log('INFO', f'    Мультиинсёрт: {figi} - {dateParam} - {interval}')
-            # Если в БД присутствует хоть одна запись, то перебираем весь лист по элементно
-            else:
-                # Если количество найденых свкчей в БД не равно количеству свечей candlesList
-                if rows[0][0] != len(candlesList):
-                    for candleStruct in candlesList:
-                        # Запрос на вставку с проверкой на дублирование
-                        query = f"INSERT INTO {self.tableName}(figi, interval, open, close, height, low, volume, time) " \
-                                f"SELECT " \
-                                f"'{candleStruct['figi']}', " \
-                                f"'{candleStruct['interval']}', " \
-                                f"{candleStruct['o']}, " \
-                                f"{candleStruct['c']}, " \
-                                f"{candleStruct['h']}," \
-                                f"{candleStruct['l']}, " \
-                                f"{candleStruct['v']}, " \
-                                f"'{candleStruct['time']}' " \
-                                f"WHERE NOT EXISTS(SELECT 1 FROM {self.tableName} WHERE " \
-                                f"figi='{candleStruct['figi']}' and " \
-                                f"interval='{candleStruct['interval']}' and " \
-                                f"time='{candleStruct['time']}'" \
-                                f")"
-                        sqliteCursor.execute(query)
-                        sqliteConnection.commit()
-                        to_log('INFO', f'Попытка дописать в БД: {figi} - {dateParam} - {interval}')
-
-            # Закрываем соединение с БД
-            sqliteConnection.close()
-
-    def load(self, candleRes):
-        self.figi = candleRes['figi']
-        self.o = candleRes['o']
-        self.c = candleRes['c']
-        self.h = candleRes['h']
-        self.l = candleRes['l']
-        self.v = candleRes['v']
-        self.interval = candleRes['interval']
-        self.t = candleRes['time']
-
-    def sqlite_find_candle(self, figi, dateParam, interval):
-        """
-        dateParam: (str) 2021-03-23T22:34:00Z
-        """
-
-        query = f"select figi, interval, time " \
-                f"from {self.tableName} " \
-                f"where figi='{figi}' and interval='{interval}' and time='{dateParam}'"
-        rows = sqlite_result(self.dbFileName, query)
-        if len(rows) == 0:
-            return False
-        else:
-            return True
-
-    def sqlite_find_count(self, figi, dateParam, interval):
-        """
-
-        :param figi:
-        :param dateParam:
-        :param interval:
-        :return:
-        """
-
-        result = 0
-
-        query = f"select " \
-                f"  count(figi) " \
-                f"from " \
-                f"  {self.tableName} " \
-                f"where " \
-                f"  figi='{figi}' and " \
-                f"  interval='{interval}' and " \
-                f"  time like '{dateParam}%'"
-
-        rows = sqlite_result(self.dbFileName, query)
-
-        if len(rows) == 1:
-            if len(rows[0]) == 1:
-                result = rows[0][0]
-        return result
-
-    def sqlite_find_min_date(self, figi, interval):
-        result = ''
-        query = f"select " \
-                f"  min(time) " \
-                f"from " \
-                f"  {self.tableName} " \
-                f"where " \
-                f"  figi='{figi}' and" \
-                f"  interval='{interval}'"
-
-        rows = sqlite_result(self.dbFileName, query)
-
-        if len(rows) == 1:
-            if len(rows[0]) == 1:
-                result = rows[0][0]
-        return result
-
-    def create_html_graf(self, figi, dateParam, interval):
-        query = f"select time, close from {self.tableName} where figi='{figi}' and time like '{dateParam}%' and interval='{interval}'"
-        rows = sqlite_result(self.dbFileName, query)
-
-        if len(rows) > 0:
-            data = ''
-
-            for row in rows:
-                data += f"['{row[0]}',  {row[1]}], "
-
-            htmlBody = f"" \
-                       "<html>" \
-                       "<head>" \
-                       "<script type=text/javascript src=https://www.gstatic.com/charts/loader.js></script>" \
-                       "<script type=text/javascript>" \
-                       "google.charts.load('current', {'packages':['corechart']});"\
-                       "google.charts.setOnLoadCallback(drawChart);" \
-                       "function drawChart() {" \
-                       "var data = google.visualization.arrayToDataTable([" \
-                       "['Дата', 'Цена закрытия']," \
-                       f"{data}" \
-                       "]);" \
-                       "var options = {" \
-                       "title: 'Company Performance'," \
-                       "curveType: 'function'," \
-                       "legend: { position: 'bottom' }" \
-                       "};" \
-                       "var chart = new google.visualization.LineChart(document.getElementById('curve_chart'));" \
-                       "chart.draw(data, options);" \
-                       "}" \
-                       "</script>" \
-                       "</head>" \
-                       "<body>" \
-                       "<div id=curve_chart style=width: 900px; height: 900px></div>" \
-                       "</body>" \
-                       "</html>"
-
-            f = open(f'{figi}_{dateParam}_{interval}.html', 'w')
-            f.write(htmlBody)
-            f.close()
-
-
-class TiStock:
-    def __init__(self, dbFileName):
-        self.tableName = 'tiStock'
-        self.dbFileName = dbFileName
-        #
-        self.stockID = 0
-        self.figi = ''
-        self.ticker = ''
-        self.isin = ''
-        self.minPriceIncrement = 0.0
-        self.lot = 0
-        self.currency = ''
-        self.name = ''
-        self.type_ = ''
-
-    def sqlite_create_table(self):
-        query = f'create table if not exists {self.tableName}' \
-            '(' \
-            'stockID INTEGER PRIMARY KEY AUTOINCREMENT,' \
-            'figi text,' \
-            'ticker text,' \
-            'isin text,' \
-            'minPriceIncrement double,' \
-            'lot INTEGER,' \
-            'currency text,' \
-            'name text,' \
-            'type text' \
-            ')'
-
-        sqlite_commit(self.dbFileName, query)
-
-    def sqlite_insert(self):
-        if not self.sqlite_find_figi(self.figi):
-            self.name = self.name.replace('\'', '')
-
-            query = f'insert into {self.tableName}' \
-                    f'(figi, ticker, isin, minPriceIncrement, lot, currency, name, type)' \
-                    f'VALUES(' \
-                    f"'{self.figi}', " \
-                    f"'{self.ticker}', " \
-                    f"'{self.isin}', "\
-                    f"{str(self.minPriceIncrement)}, " \
-                    f"{str(self.lot)}, " \
-                    f"'{self.currency}', " \
-                    f"'{self.name}', " \
-                    f"'{self.type_}'" \
-                    ')'
-
-            sqlite_commit(self.dbFileName, query)
-
-    def sqlite_update(self, restResult):
-        if restResult != None:
-            if restResult.status_code == 200:
-                jStr = json.loads(restResult.content)
-                if chek_key('payload', jStr) == True:
-                    if chek_key('instruments', jStr['payload']) == True:
-                        stocks = jStr['payload']['instruments']
-                        for stock in stocks:
-                            self.figi = stock['figi']
-                            self.ticker = stock['ticker']
-                            self.isin = stock['isin']
-
-                            if chek_key('minPriceIncrement', stock):
-                                self.minPriceIncrement = stock['minPriceIncrement']
-                            else:
-                                self.minPriceIncrement = 0
-
-                            self.lot = stock['lot']
-                            self.currency = stock['currency']
-                            self.name = stock['name']
-                            self.type_ = stock['type']
-
-                            self.sqlite_insert()
-
-    def sqlite_get_all_figis(self):
-        query = f"select figi from {self.tableName}"
-        return sqlite_result(self.dbFileName, query)
-
-    def sqlite_find_figi(self, figi):
-        query = f"select figi from {self.tableName} where figi='{figi}'"
-        rows = sqlite_result(self.dbFileName, query)
-        if len(rows) == 0:
-            return False
-        else:
-            return True
-
-class TinkofInvest:
-    """
-    Основной класс для работы с инвестициями
+    :dbCursor:   Указатель на курсор БД
+    :query:      Запрос к БД
+    :commitFlag: Делать ли коммит (True - Делать)
+    :resultType: Тип результата (one - первую строку результата, all - весь результат)
     """
 
-    def __init__(self):
-        self.sqliteDB = ''
-        self.restUrl = 'https://api-invest.tinkoff.ru/openapi/'
-        self.apiToken = ''
-        self.headers = ''
-        self.commission = 0.0 # Комисиия при покупке/продаже в %
-        self.stock = None
-        self.candle = None
+    if dbConnection:
+        dbCursor = dbConnection.cursor()
+        dbCursor.execute(query)
 
-    def set_params(self):
-        """
-        Функция первичной настройи класса, вызывается после создания класса
-        """
+        if commitFlag == True:
+            dbConnection.commit()
 
-        # Пытаемся загрузить параметры из конфигурационного файла
+        if resultType == 'one':
+            return dbCursor.fetchone()
+
+        if resultType == 'all':
+            return dbCursor.fetchall()
+
+
+class TinkoffInvest:
+    def __init__(self, confFileName):
+        # Инициализация логера
+        self.logger = logging.getLogger('TinkofInvest')
+        self.logger.setLevel(logging.INFO)
+        fh = logging.FileHandler('log.txt')
+        #formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] [%(message)s]')
+        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(message)s]')
+        fh.setFormatter(formatter)
+        self.logger.addHandler(fh)
+
+        self.logger.info('Инициализация приложения')
+
         try:
-            confFile = open('conf.txt', 'r')
+            confFile = open(confFileName, 'r')
             confParams = json.load(confFile)
 
-            self.restUrl = confParams['restUrl']
-            self.apiToken = confParams['apiToken']  # Токен для торгов
-            self.headers = {'Authorization': f'Bearer {self.apiToken}'}
-            self.commission = confParams['commission']  # Базовая комиссия при операциях
-            self.sqliteDB = confParams['sqliteDB']
-            self.candlesEndDate = confParams['candlesEndDate']
-            self.figisExportFolder = confParams['figisExportFolder']
+            self.restUrl           = confParams['restUrl']                        #
+            self.apiToken          = confParams['apiToken']                       # Токен для торгов
+            self.headers           = {'Authorization': f'Bearer {self.apiToken}'} #
+            self.commission        = confParams['commission']                     # Базовая комиссия при операциях
+            self.candlesEndDate    = confParams['candlesEndDate']                 #
+            self.exportFolder      = confParams['exportFolder']                   #
+            self.mysqlHost         = confParams['mysqlHost']                      #
+            self.mySqlDb           = confParams['mySqlDb']                        #
+            self.mySqlUser         = confParams['mySqlUser']                      #
+            self.mySqlPassword     = confParams['mySqlPassword']                  #
 
-        finally:
-            confFile.close()
-
-
-        # Создаём таблицу и заполняем таблицу tiStock
-        self.stock = TiStock(self.sqliteDB)
-        self.stock.sqlite_create_table()
-        stocks = self.get_data_stocks()
-        self.stock.sqlite_update(stocks)
-
-        # Создаём таблицу tiCandles
-        self.candle = TiCandle(self.sqliteDB)
-        self.candle.sqlite_create_table()
-
-    def get_data(self, dataPref):
-        url = f'{self.restUrl}{dataPref}'
-        try:
-            result = requests.get(url=url, headers=self.headers)
+            self.logger.info('Параметры приложения из конф. файла загружены')
         except:
-            result = None
+            self.logger.error('Параметры приложения из конф. файла не загружены')
 
-        return result
-
-    def get_data_portfolio(self):
-        dataPref = 'portfolio'
-        return self.get_data(dataPref)
-
-    def get_data_stocks(self):
-        dataPref = 'market/stocks'
-        return self.get_data(dataPref)
-
-    def get_list_portfolio(self):
+    def get_dates_list(self):
         result = []
 
-        res = self.get_data_portfolio()
-        if res != None:
-            if res.status_code == 200:
-                jStr = json.loads(res.content)
-                if chek_key('payload', jStr):
-                    if chek_key('positions', jStr['payload']):
-                        result = jStr['payload']['positions']
+        now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
+        dateParam = now
+
+        while str(dateParam)[0:10] != self.candlesEndDate:
+            d = str(dateParam)[0:10]
+            result.append(d)
+            dateParam = dateParam - timedelta(days=1)
 
         return result
+
+    def get_stocks(self):
+        result = {
+            'json': '', # Чистый json
+            'list': ''  # Список инструментов
+        }
+
+        url = f'{self.restUrl}market/stocks'
+        try:
+            res = get_data(url, self.headers)
+            self.logger.info('Список инструментов загружен из rest')
+
+            if res.status_code == 200:
+                jStr = json.loads(res.content)
+
+                if chek_key(jStr['payload']['instruments']):
+                    result['json'] = jStr
+                    result['list'] = jStr['payload']['instruments']
+                    return result
+            else:
+                return result
+        except:
+            self.logger.error('Список инструментов не загружен из rest')
+            return result
+
+    def stocks_to_file(self):
+        res = self.get_stocks()
+
+        if len(res['json']) > 0:
+            stocksFile = f'{self.exportFolder}/stocks.txt'
+
+            if not os.path.isfile(stocksFile):
+                with open(stocksFile, 'w') as fp:
+                    json.dump(res['json'], fp)
+
+    def stocks_to_mysql(self):
+        res = self.get_stocks()
+        j = res['json']
+        l = res['list']
+
+        if len(l):
+            db = pymysql.connect(host=self.mysqlHost,
+                                 user=self.mySqlUser,
+                                 password=self.mySqlPassword,
+                                 database=self.mySqlDb)
+
+            for stock in l:
+                name = stock['name'].replace("'", "")
+                #print(stock)
+
+                minPriceIncrement = 0
+                try:
+                    minPriceIncrement = stock['minPriceIncrement']
+                except:
+                    minPriceIncrement = 1
+
+                query = f'INSERT IGNORE INTO stocks ' \
+                        f'(figi, ticker, isin, minPriceIncrement, lot, currency, name, type) ' \
+                        f'VALUES(' \
+                        f"'{stock['figi']}', " \
+                        f"'{stock['ticker']}', " \
+                        f"'{stock['isin']}', " \
+                        f"{str(minPriceIncrement)}, " \
+                        f"{str(stock['lot'])}, " \
+                        f"'{stock['currency']}', " \
+                        f"'{name}', " \
+                        f"'{stock['type']}'" \
+                        ')'
+                #print(query)
+                mysql_execute(db, query, True, 'one')
+
+    def get_portfolio(self):
+        result = {
+            'json': '',  # Чистый json
+            'list': ''  # Список инструментов
+        }
+
+        url = f'{self.restUrl}portfolio'
+        try:
+            res = get_data(url, self.headers)
+            self.logger.info('Список инструментов портфолио загружен из rest')
+
+            if res.status_code == 200:
+                jStr = json.loads(res.content)
+
+                if chek_key(jStr['payload']['positions']):
+                    result['json'] = jStr
+                    result['list'] = jStr['payload']['positions']
+                    return result
+            else:
+                return result
+        except:
+            self.logger.error('Список инструментов портфолио не загружен из rest')
+            return result
 
     def get_candles(self, figi, d1, d2, interval):
         """
@@ -480,20 +210,28 @@ class TinkofInvest:
         :return: список из словарей вида: {"o": 0.0, "c": 0.0, "h": 0.0, "l": 0.0, "v": 00, "time": "2007-07-23T07:00:00Z", "interval": "day", "figi": "BBG00DL8NMV2"}
         """
 
-        result = []
+        result = {
+            'json': '', # Чистый json
+            'list': ''  # Список свечей
+        }
 
-        url = f'market/candles?figi={figi}&from={dtToUrlFormat(d1)}&to={dtToUrlFormat(d2)}&interval={interval}'
-        candlesData = self.get_data(url)
+        url = f'{self.restUrl}market/candles?figi={figi}&from={dtToUrlFormat(d1)}&to={dtToUrlFormat(d2)}&interval={interval}'
+        try:
+            res = get_data(url, self.headers)
+            self.logger.info(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} загружена из rest')
 
-        if candlesData != None:
-            if candlesData.status_code == 200:
-                jStr = json.loads(candlesData.content)
-                if chek_key('payload', jStr):
-                    if chek_key('candles', jStr['payload']):
-                        #result = jStr['payload']['candles']
-                        result = jStr
+            if res.status_code == 200:
+                jStr = json.loads(res.content)
 
-        return result
+                if chek_key(jStr['payload']['candles']):
+                    result['json'] = jStr
+                    result['list'] = jStr['payload']['candles']
+                    return result
+            else:
+                return result
+        except:
+            self.logger.error(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} не загружена из rest')
+            return result
 
     def get_candles_by_date(self, figi, dateParam, interval):
         """
@@ -506,137 +244,97 @@ class TinkofInvest:
 
         return self.get_candles(figi, d1, d2, interval)
 
-    def candles_by_date_to_sqlite(self, figi, dateParam, interval):
-        msg = f'get {figi} {interval} on {dateParam}'
-        to_log('INFO', msg)
+    def figi_candles_by_date_to_file(self, figi, dateParam, interval):
+        folder = f"{self.exportFolder}/figis/{figi}"
+        if not os.path.exists(folder):
+            os.makedirs(folder)
 
-        candlesList = self.get_candles_by_date(figi, dateParam, interval)
-        cc = self.candle.sqlite_find_count(figi, dateParam, interval)
-        if len(candlesList) != int(cc):
-            for camdle in candlesList:
-                self.candle.load(camdle)
-                self.candle.sqlite_insert()
+        res = self.get_candles_by_date(figi, dateParam, interval)
 
-    def portfolio_candles_to_file(self, interval):
-        figiList = self.get_list_portfolio()
+        if len(res['list']) > 0:
+            figiFile = f"{folder}/{dateParam}.txt"
 
-        now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
+            if not os.path.isfile(figiFile):
+                with open(figiFile, 'w') as fp:
+                    json.dump(res['json'], fp)
 
-        for figi in figiList:
-            dateParam = now
+    def figis_from_files_to_mysql(self):
+        dbFlag = True
 
-            while str(dateParam)[0:10] != self.candlesEndDate:
-                d = str(dateParam)[0:10]
+        try:
+            db = pymysql.connect(host=self.mysqlHost,
+                                 user=self.mySqlUser,
+                                 password=self.mySqlPassword,
+                                 database=self.mySqlDb)
+        except:
+            dbFlag = False
+            self.logger.error('Не удалось подключиться к БД')
 
-                folder = f"{self.figisExportFolder}/{figi['figi']}"
+        if dbFlag:
+            self.logger.info('Удалось подключиться к БД')
 
-                if not os.path.exists(folder):
-                    os.makedirs(folder)
-
-                figiFile = f"{folder}/{d}.txt"
-
-                if not os.path.isfile(figiFile):
-                    candlesList = self.get_candles_by_date(figi['figi'], d, interval)
-                    with open(figiFile, 'w') as fp:
-                        json.dump(candlesList, fp)
-                        to_log('INFO', f"save to file:  {figiFile}")
-
-                dateParam = dateParam - timedelta(days=1)
-
-    def all_figis_candles_to_file(self, interval):
-        figiList = self.stock.sqlite_get_all_figis()
-
-        now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
-
-        for figi in figiList:
-            dateParam = now
-
-            while str(dateParam)[0:10] != self.candlesEndDate:
-                d = str(dateParam)[0:10]
-
-                folder = f"{self.figisExportFolder}/{figi[0]}"
-
-                if not os.path.exists(folder):
-                    os.makedirs(folder)
-
-                figiFile = f"{folder}/{d}.txt"
-
-                if not os.path.isfile(figiFile):
-                    candlesList = self.get_candles_by_date(figi[0], d, interval)
-                    with open(figiFile, 'w') as fp:
-                        json.dump(candlesList, fp)
-                        to_log('INFO', f"save to file:  {figiFile}")
-
-                dateParam = dateParam - timedelta(days=1)
-
-    def candles_from_files_to_sqlite(self, interval):
-        """"""
-
-        for folder in os.scandir(f'{self.figisExportFolder}'):
-            if folder.is_dir():
-                folderPath = f'{folder.path}/'
-                figi = folder.name
-                to_log('INFO', f'Обработка каталога: {folderPath}')
-
-                for figiFile in os.scandir(folderPath):
+            for folder in os.scandir(f'{self.exportFolder}/figis'):
+                filesList = os.scandir(folder.path)
+                print(f'{folder.path}')
+                for figiFile in filesList:
                     if figiFile.is_file():
-                        figiFilePath = figiFile.path
-                        to_log('INFO', f'Обработка файла: {figiFilePath}')
-                        dateParam = figiFile.name[0:-4]
+                        #print(figiFile.path)
 
-                        with open(figiFilePath, 'r') as j:
-                            jsonBody = json.load(j)
+                        query = f"select fileName from files_processing where fileName='{figiFile.path}'"
+                        res = mysql_execute(db, query, False, 'one')
+                        #print(res)
+                        if res == None:
+                            with open(figiFile.path, 'r') as j:
+                                jsonBody = json.load(j)
+                                candlesList = None
 
-                            candlesList = jsonBody['payload']['candles']
+                                try:
+                                    candlesList = jsonBody['payload']['candles']
+                                except:
+                                    candlesList = []
 
-                            self.candle.sqlite_multi_insert(candlesList, figi, dateParam, interval)
+                                for candle in candlesList:
+                                    t = candle['time'][:-4]
+                                    query = f'INSERT INTO figis(o, c, h, l, v, time, intervalTime, figi) ' \
+                                            f'SELECT ' \
+                                            f"{candle['o']}, " \
+                                            f"{candle['c']}, " \
+                                            f"{candle['h']}, " \
+                                            f"{candle['l']}, " \
+                                            f"{candle['v']}, " \
+                                            f"'{t}', " \
+                                            f"'{candle['interval']}', " \
+                                            f"'{candle['figi']}' " \
+                                            f'FROM (SELECT 1) as dummytable ' \
+                                            f"WHERE NOT EXISTS (SELECT 1 FROM figis WHERE " \
+                                            f"figi='{candle['figi']}' and " \
+                                            f"intervalTime='{candle['interval']}' and " \
+                                            f"time='{t}'" \
+                                            f')'
+                                    #print(query)
+                                    mysql_execute(db, query, True, 'one')
+                                    #self.logger.info(f"В БД добавлены свечи инструмента {candle['figi']} на дату {candle['time']}")
 
-    def candles_by_figi_list_to_sqlite(self, interval, getType, figiList):
-        """
-        Запись исторических свечей по дням в БД SQLite относительно инструментов в портфолио
-        :getType: влияеет на дату с которой получаюся данные.
-            0 - старт со вчера, 1 - с самой ранней даты + 1 день
-        """
+                                query = f"INSERT IGNORE INTO files_processing(fileName) VALUES('{figiFile.path}')"
+                                mysql_execute(db, query, True, 'one')
+                                self.logger.info(f"Файл {figiFile.path} записан в БД, как обработанный")
 
-        now = datetime.now(tz=timezone('Europe/Moscow'))
+                        os.remove(figiFile.path)
+                        self.logger.info(f'Удалён файл {figiFile.path}')
 
-        for figi in figiList:
-            dateParam = now
 
-            if getType == 1:
-                d = self.candle.sqlite_find_min_date(figi, interval)
-                if d != None:
-                    if len(d) > 10:
-                        dateParam = datetime.strptime(d[0:10], "%Y-%m-%d") + timedelta(days=1)
+if __name__ == "__main__":
+    try:
+        os.remove('log.txt')
+    except:
+        pass
 
-            while str(dateParam)[0:10] != self.candlesEndDate:
-                #print(f'{figi} on {dateParam}')
+    invest = TinkoffInvest('conf.txt')
 
-                d = str(dateParam)[0:10]
-                self.candles_by_date_to_sqlite(figi, d, interval)
+    #invest.stocks_to_file()
+    #invest.figi_candles_by_date_to_file('BBG00B0FS947', '2021-02-24', '1min')
+    #print(invest.get_dates_list())
 
-                dateParam = dateParam - timedelta(days=1)
+    #invest.stocks_to_mysql()
 
-    def portfolio_candles_by_figi_list_to_sqlite(self, interval, getType):
-        figiList = []
-        portfolioList = self.get_list_portfolio()
-
-        for item in portfolioList:
-            figi = item['figi']
-            figiList.append(figi)
-
-            msg = f'{figi}'
-            to_log('INFO', msg)
-
-        self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
-
-    def all_figis_candles_by_figi_list_to_sqlite(self, interval, getType):
-        figiList = []
-        for item in self.stock.sqlite_get_all_figis():
-            figi = item[0]
-            figiList.append(figi)
-
-            msg = f'{figi}'
-            to_log('INFO', msg)
-
-        self.candles_by_figi_list_to_sqlite(interval, getType, figiList)
+    invest.figis_from_files_to_mysql()
