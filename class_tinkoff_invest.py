@@ -59,6 +59,12 @@ def mysql_execute(dbConnection, query, commitFlag, resultType):
         if resultType == 'all':
             return dbCursor.fetchall()
 
+def format_filename(fileName):
+    l = fileName.split('/')
+    s = f'{l[len(l) -2]}_{l[len(l) -1]}'[:-4]
+
+    return s
+
 
 class TinkoffInvest:
     def __init__(self, confFileName):
@@ -315,7 +321,7 @@ class TinkoffInvest:
                                     mysql_execute(db, query, True, 'one')
                                     #self.logger.info(f"В БД добавлены свечи инструмента {candle['figi']} на дату {candle['time']}")
 
-                                query = f"INSERT IGNORE INTO files_processing(fileName) VALUES('{figiFile.path}')"
+                                query = f"INSERT IGNORE INTO files_processing(fileName) VALUES('{format_filename(figiFile.path)}')"
                                 mysql_execute(db, query, True, 'one')
                                 self.logger.info(f"Файл {figiFile.path} записан в БД, как обработанный")
 
