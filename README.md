@@ -1,5 +1,7 @@
 # python-tinkoff_invest
 
+Дампы БД и фалы свечей: https://disk.yandex.ru/d/6HfiZBrhxp-_hQ?w=1
+
 Старт в фоне :
 	chmod +x demon.py # только один раз
 

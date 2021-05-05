@@ -400,6 +400,8 @@ class TinkoffInvest:
                         os.remove(figiFile.path)
                         self.logger.info(f'Удалён файл {figiFile.path}')
         """
+
+
 if __name__ == "__main__":
     try:
         os.remove('log.txt')
