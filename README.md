@@ -2,6 +2,11 @@
 
 Дампы БД и фалы свечей: https://disk.yandex.ru/d/6HfiZBrhxp-_hQ?w=1
 
+Тест функиональности API от разработчиков тинькова: https://tinkoffcreditsystems.github.io/invest-openapi/swagger-ui/#/
+
+
+TEMP:
+
 Старт в фоне :
 	chmod +x demon.py # только один раз
 
