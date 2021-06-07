@@ -7,15 +7,16 @@ from datetime import datetime, timedelta
 from pytz import timezone # pip3 install pytz
 from multiprocessing import Pool
 
-def dtToUrlFormat(dtStr):
+
+def dt_to_url_format(dt_str):
     """
     Функция для корректного форматирования ДатыВремя в URL
 
-    :param dtStr:
+    :param dt_str:
     :return:
     """
 
-    result = f'{str(dtStr)}.283+00:00'
+    result = f'{str(dt_str)}.283+00:00'
     result = result.replace(':', '%3A')
     result = result.replace('+', '%2B')
 
@@ -23,21 +24,16 @@ def dtToUrlFormat(dtStr):
 
     return result
 
-def chek_key(key):
-    """ нет смысла в ней """
-    try:
-        x = key
-        return True
-    except:
-        return False
 
 def get_data(url, headers):
+    result = None
     try:
-        return requests.get(url=url, headers=headers)
+        result = requests.get(url=url, headers=headers)
     except:
-        return None
+        return result
 
-def mysql_execute(dbConnection, query, commitFlag, resultType):
+
+def mysql_execute(db_connection, query, commit_flag, result_type):
     """
     Функция для выполнния любых типов запросов к MySQL
 
@@ -47,33 +43,33 @@ def mysql_execute(dbConnection, query, commitFlag, resultType):
     :resultType: Тип результата (one - первую строку результата, all - весь результат)
     """
 
-    if dbConnection:
-        dbCursor = dbConnection.cursor()
+    if db_connection:
+        dbCursor = db_connection.cursor()
         dbCursor.execute(query)
 
-        if commitFlag == True:
-            dbConnection.commit()
+        if commit_flag == True:
+            db_connection.commit()
 
-        if resultType == 'one':
+        if result_type == 'one':
             return dbCursor.fetchone()
 
-        if resultType == 'all':
+        if result_type == 'all':
             return dbCursor.fetchall()
 
-def format_filename(fileName):
-    l = fileName.split('/')
+
+def format_filename(file_name):
+    l = file_name.split('/')
     s = f'{l[len(l) -2]}_{l[len(l) -1]}'[:-4]
 
     return s
 
 
 class TinkoffInvest:
-    def __init__(self, confFileName):
+    def __init__(self, conf_file_name):
         # Инициализация логера
         self.logger = logging.getLogger('TinkofInvest')
         self.logger.setLevel(logging.INFO)
         fh = logging.FileHandler('log.txt')
-        #formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] [%(message)s]')
         formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(message)s]')
         fh.setFormatter(formatter)
         self.logger.addHandler(fh)
@@ -81,19 +77,19 @@ class TinkoffInvest:
         self.logger.info('Инициализация приложения')
 
         try:
-            confFile = open(confFileName, 'r')
-            confParams = json.load(confFile)
+            conf_file = open(conf_file_name, 'r')
+            conf_params = json.load(conf_file)
 
-            self.restUrl           = confParams['restUrl']                        #
-            self.apiToken          = confParams['apiToken']                       # Токен для торгов
-            self.headers           = {'Authorization': f'Bearer {self.apiToken}'} #
-            self.commission        = confParams['commission']                     # Базовая комиссия при операциях
-            self.candlesEndDate    = confParams['candlesEndDate']                 #
-            self.exportFolder      = confParams['exportFolder']                   #
-            self.mysqlHost         = confParams['mysqlHost']                      #
-            self.mySqlDb           = confParams['mySqlDb']                        #
-            self.mySqlUser         = confParams['mySqlUser']                      #
-            self.mySqlPassword     = confParams['mySqlPassword']                  #
+            self.rest_url = conf_params['restUrl']                       #
+            self.api_token = conf_params['apiToken']                     # Токен для торгов
+            self.headers = {'Authorization': f'Bearer {self.api_token}'}  #
+            self.commission = conf_params['commission']                  # Базовая комиссия при операциях
+            self.candles_end_date = conf_params['candlesEndDate']        #
+            self.export_folder = conf_params['exportFolder']             #
+            self.mysql_host = conf_params['mysqlHost']                   #
+            self.mysql_db = conf_params['mySqlDb']                       #
+            self.mysql_user = conf_params['mySqlUser']                   #
+            self.mysql_password = conf_params['mySqlPassword']           #
 
             self.logger.info('Параметры приложения из конф. файла загружены')
         except:
@@ -103,19 +99,19 @@ class TinkoffInvest:
         result = []
 
         now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
-        dateParam = now
+        date_param = now
 
-        while str(dateParam)[0:10] != self.candlesEndDate:
-            d = str(dateParam)[0:10]
+        while str(date_param)[0:10] != self.candles_end_date:
+            d = str(date_param)[0:10]
             result.append(d)
-            dateParam = dateParam - timedelta(days=1)
+            date_param -= timedelta(days=1)
 
         return result
 
     def get_stocks(self):
         result = {
-            'json': '', # Чистый json
-            'list': ''  # Список инструментов
+            'json': '',  # Чистый json
+            'list': ''   # Список инструментов
         }
 
         url = f'{self.restUrl}market/stocks'
@@ -126,10 +122,9 @@ class TinkoffInvest:
             if res.status_code == 200:
                 jStr = json.loads(res.content)
 
-                if chek_key(jStr['payload']['instruments']):
-                    result['json'] = jStr
-                    result['list'] = jStr['payload']['instruments']
-                    return result
+                result['json'] = jStr
+                result['list'] = jStr['payload']['instruments']
+                return result
             else:
                 return result
         except:
@@ -140,10 +135,10 @@ class TinkoffInvest:
         res = self.get_stocks()
 
         if len(res['json']) > 0:
-            stocksFile = f'{self.exportFolder}/stocks.txt'
+            stocks_file = f'{self.exportFolder}/stocks.txt'
 
-            if not os.path.isfile(stocksFile):
-                with open(stocksFile, 'w') as fp:
+            if not os.path.isfile(stocks_file):
+                with open(stocks_file, 'w') as fp:
                     json.dump(res['json'], fp)
 
     def stocks_to_mysql(self):
@@ -152,16 +147,15 @@ class TinkoffInvest:
         l = res['list']
 
         if len(l):
-            db = pymysql.connect(host=self.mysqlHost,
-                                 user=self.mySqlUser,
-                                 password=self.mySqlPassword,
-                                 database=self.mySqlDb)
+            db = pymysql.connect(host=self.mysql_host,
+                                 user=self.mysql_user,
+                                 password=self.mysql_password,
+                                 database=self.mysql_db)
 
             for stock in l:
                 name = stock['name'].replace("'", "")
-                #print(stock)
 
-                minPriceIncrement = 0
+                #minPriceIncrement = 0
                 try:
                     minPriceIncrement = stock['minPriceIncrement']
                 except:
@@ -179,7 +173,7 @@ class TinkoffInvest:
                         f"'{name}', " \
                         f"'{stock['type']}'" \
                         ')'
-                #print(query)
+
                 mysql_execute(db, query, True, 'one')
 
     def get_portfolio(self):
@@ -188,7 +182,7 @@ class TinkoffInvest:
             'list': ''  # Список инструментов
         }
 
-        url = f'{self.restUrl}portfolio'
+        url = f'{self.rest_url}portfolio'
         try:
             res = get_data(url, self.headers)
             self.logger.info('Список инструментов портфолио загружен из rest')
@@ -196,10 +190,9 @@ class TinkoffInvest:
             if res.status_code == 200:
                 jStr = json.loads(res.content)
 
-                if chek_key(jStr['payload']['positions']):
-                    result['json'] = jStr
-                    result['list'] = jStr['payload']['positions']
-                    return result
+                result['json'] = jStr
+                result['list'] = jStr['payload']['positions']
+                return result
             else:
                 return result
         except:
@@ -218,51 +211,50 @@ class TinkoffInvest:
         """
 
         result = {
-            'json': '', # Чистый json
-            'list': ''  # Список свечей
+            'json': '',  # Чистый json
+            'list': ''   # Список свечей
         }
 
-        url = f'{self.restUrl}market/candles?figi={figi}&from={dtToUrlFormat(d1)}&to={dtToUrlFormat(d2)}&interval={interval}'
+        url = f'{self.rest_url}market/candles?figi={figi}&from={dt_to_url_format(d1)}&to={dt_to_url_format(d2)}&interval={interval}'
         try:
             res = get_data(url, self.headers)
             self.logger.info(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} загружена из rest')
 
             if res.status_code == 200:
-                jStr = json.loads(res.content)
+                j_str = json.loads(res.content)
 
-                if chek_key(jStr['payload']['candles']):
-                    result['json'] = jStr
-                    result['list'] = jStr['payload']['candles']
-                    return result
+                result['json'] = j_str
+                result['list'] = j_str['payload']['candles']
+                return result
             else:
                 return result
         except:
             self.logger.error(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} не загружена из rest')
             return result
 
-    def get_candles_by_date(self, figi, dateParam, interval):
+    def get_candles_by_date(self, figi, date_param, interval):
         """
         Функция получает свечу инструмента за дату(полные сутки) с указанным интервалом
 
         :param dateParam: (str) Дата получения данных (2021-03-24)
         """
-        d1 = f'{dateParam} 00:00:00'
-        d2 = f'{dateParam} 23:59:59'
+        d1 = f'{date_param} 00:00:00'
+        d2 = f'{date_param} 23:59:59'
 
         return self.get_candles(figi, d1, d2, interval)
 
-    def figi_candles_by_date_to_file(self, figi, dateParam, interval):
-        folder = f"{self.exportFolder}/figis/{figi}"
+    def figi_candles_by_date_to_file(self, figi, date_param, interval):
+        folder = f"{self.export_folder}/figis/{figi}"
         if not os.path.exists(folder):
             os.makedirs(folder)
 
-        res = self.get_candles_by_date(figi, dateParam, interval)
+        res = self.get_candles_by_date(figi, date_param, interval)
 
         if len(res['list']) > 0:
-            figiFile = f"{folder}/{dateParam}.txt"
+            figi_file = f"{folder}/{date_param}.txt"
 
-            if not os.path.isfile(figiFile):
-                with open(figiFile, 'w') as fp:
+            if not os.path.isfile(figi_file):
+                with open(figi_file, 'w') as fp:
                     json.dump(res['json'], fp)
 
     def figi_from_files_to_mysql(self, folderName):
@@ -410,10 +402,12 @@ if __name__ == "__main__":
 
     invest = TinkoffInvest('conf.txt')
 
+    
+
     #invest.stocks_to_file()
     #invest.figi_candles_by_date_to_file('BBG00B0FS947', '2021-02-24', '1min')
     #print(invest.get_dates_list())
 
     #invest.stocks_to_mysql()
 
-    invest.figis_from_files_to_mysql()
+    #invest.figis_from_files_to_mysql()

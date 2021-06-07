@@ -1,12 +1,11 @@
 {
-    "restUrl":"https://api-invest.tinkoff.ru/openapi/",
-	"apiToken":"",
+    "rest_Url":"https://api-invest.tinkoff.ru/openapi/",
+	"api_Token":"",
     "commission":0.05,
-	"sqliteDB":"tinkofInvest.db",
-	"candlesEndDate":"2021-03-01",
-	"exportFolder":"./data",
-	"mysqlHost":"localhost",
-	"mySqlDb":"tinkoff_invest",
-	"mySqlUser":"admin",
-	"mySqlPassword":"password"
+	"candles_end_date":"2021-06-01",
+	"export_folder":"./data",
+	"mysql_host":"localhost",
+	"mysql_db":"ti",
+	"mysql_user":"root",
+	"mysql_password":""
 }
