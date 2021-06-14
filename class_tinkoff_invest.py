@@ -1,10 +1,10 @@
 import os
 import logging
 import json
-import requests # pip3 install requests
-import pymysql # pip3 install PyMySQL
+import requests  # pip3 install requests
+import pymysql  # pip3 install PyMySQL
 from datetime import datetime, timedelta
-from pytz import timezone # pip3 install pytz
+from pytz import timezone  # pip3 install pytz
 from multiprocessing import Pool
 
 
@@ -26,11 +26,12 @@ def dt_to_url_format(dt_str):
 
 
 def get_data(url, headers):
-    result = None
     try:
         result = requests.get(url=url, headers=headers)
     except:
-        return result
+        result = None
+
+    return result
 
 
 def mysql_execute(db_connection, query, commit_flag, result_type):
@@ -73,27 +74,34 @@ class TinkoffInvest:
         formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(message)s]')
         fh.setFormatter(formatter)
         self.logger.addHandler(fh)
-
         self.logger.info('Инициализация приложения')
 
         try:
             conf_file = open(conf_file_name, 'r')
             conf_params = json.load(conf_file)
 
-            self.rest_url = conf_params['restUrl']                       #
-            self.api_token = conf_params['apiToken']                     # Токен для торгов
+            self.rest_url = conf_params['rest_url']                       #
+            self.api_token = conf_params['api_token']                     # Токен для торгов
             self.headers = {'Authorization': f'Bearer {self.api_token}'}  #
-            self.commission = conf_params['commission']                  # Базовая комиссия при операциях
-            self.candles_end_date = conf_params['candlesEndDate']        #
-            self.export_folder = conf_params['exportFolder']             #
-            self.mysql_host = conf_params['mysqlHost']                   #
-            self.mysql_db = conf_params['mySqlDb']                       #
-            self.mysql_user = conf_params['mySqlUser']                   #
-            self.mysql_password = conf_params['mySqlPassword']           #
+            self.commission = conf_params['commission']                   # Базовая комиссия при операциях
+            self.candles_end_date = conf_params['candles_end_date']       #
+            self.export_folder = conf_params['export_folder']             #
+            self.mysql_host = conf_params['mysql_host']                   #
+            self.mysql_db = conf_params['mysql_db']                       #
+            self.mysql_user = conf_params['mysql_user']                   #
+            self.mysql_password = conf_params['mysql_password']           #
 
             self.logger.info('Параметры приложения из конф. файла загружены')
         except:
             self.logger.error('Параметры приложения из конф. файла не загружены')
+
+        try:
+            self.db = pymysql.connect(host=self.mysql_host,
+                user=self.mysql_user,
+                password=self.mysql_password,
+                database=self.mysql_db)
+        except:
+            self.db = None
 
     def get_dates_list(self):
         result = []
@@ -108,22 +116,24 @@ class TinkoffInvest:
 
         return result
 
+
     def get_stocks(self):
         result = {
             'json': '',  # Чистый json
             'list': ''   # Список инструментов
         }
 
-        url = f'{self.restUrl}market/stocks'
+        url = f'{self.rest_url}market/stocks'
         try:
             res = get_data(url, self.headers)
-            self.logger.info('Список инструментов загружен из rest')
 
             if res.status_code == 200:
-                jStr = json.loads(res.content)
+                j_str = json.loads(res.content)
 
-                result['json'] = jStr
-                result['list'] = jStr['payload']['instruments']
+                result['json'] = j_str
+                result['list'] = j_str['payload']['instruments']
+
+                self.logger.info('Список инструментов загружен из rest')
                 return result
             else:
                 return result
@@ -131,50 +141,37 @@ class TinkoffInvest:
             self.logger.error('Список инструментов не загружен из rest')
             return result
 
-    def stocks_to_file(self):
-        res = self.get_stocks()
-
-        if len(res['json']) > 0:
-            stocks_file = f'{self.exportFolder}/stocks.txt'
-
-            if not os.path.isfile(stocks_file):
-                with open(stocks_file, 'w') as fp:
-                    json.dump(res['json'], fp)
 
     def stocks_to_mysql(self):
         res = self.get_stocks()
-        j = res['json']
         l = res['list']
 
         if len(l):
-            db = pymysql.connect(host=self.mysql_host,
-                                 user=self.mysql_user,
-                                 password=self.mysql_password,
-                                 database=self.mysql_db)
+            if self.db:
+                for stock in l:
+                    name = stock['name'].replace("'", "")
 
-            for stock in l:
-                name = stock['name'].replace("'", "")
+                    min_price_increment = 0
+                    try:
+                        min_price_increment = stock['minPriceIncrement']
+                    except:
+                        min_price_increment = 1
 
-                #minPriceIncrement = 0
-                try:
-                    minPriceIncrement = stock['minPriceIncrement']
-                except:
-                    minPriceIncrement = 1
+                    query = f'INSERT IGNORE INTO stocks ' \
+                            f'(figi, ticker, isin, minPriceIncrement, lot, currency, name, type) ' \
+                            f'VALUES(' \
+                            f"'{stock['figi']}', " \
+                            f"'{stock['ticker']}', " \
+                            f"'{stock['isin']}', " \
+                            f"{str(min_price_increment)}, " \
+                            f"{str(stock['lot'])}, " \
+                            f"'{stock['currency']}', " \
+                            f"'{name}', " \
+                            f"'{stock['type']}'" \
+                            ')'
 
-                query = f'INSERT IGNORE INTO stocks ' \
-                        f'(figi, ticker, isin, minPriceIncrement, lot, currency, name, type) ' \
-                        f'VALUES(' \
-                        f"'{stock['figi']}', " \
-                        f"'{stock['ticker']}', " \
-                        f"'{stock['isin']}', " \
-                        f"{str(minPriceIncrement)}, " \
-                        f"{str(stock['lot'])}, " \
-                        f"'{stock['currency']}', " \
-                        f"'{name}', " \
-                        f"'{stock['type']}'" \
-                        ')'
+                    mysql_execute(self.db, query, True, 'one')
 
-                mysql_execute(db, query, True, 'one')
 
     def get_portfolio(self):
         result = {
@@ -199,6 +196,7 @@ class TinkoffInvest:
             self.logger.error('Список инструментов портфолио не загружен из rest')
             return result
 
+
     def get_candles(self, figi, d1, d2, interval):
         """
         Функция получает свечу инструмента за промежуток времени с указанным интервалом
@@ -212,13 +210,14 @@ class TinkoffInvest:
 
         result = {
             'json': '',  # Чистый json
-            'list': ''   # Список свечей
+            'list': []   # Список свечей
         }
 
         url = f'{self.rest_url}market/candles?figi={figi}&from={dt_to_url_format(d1)}&to={dt_to_url_format(d2)}&interval={interval}'
+
         try:
             res = get_data(url, self.headers)
-            self.logger.info(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} загружена из rest')
+            self.logger.info(f'Свеча {figi} c {d1} по дату {d2} с интервалом {interval} получена из rest')
 
             if res.status_code == 200:
                 j_str = json.loads(res.content)
@@ -230,184 +229,124 @@ class TinkoffInvest:
                 return result
         except:
             self.logger.error(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} не загружена из rest')
-            return result
+
+        return result
+
 
     def get_candles_by_date(self, figi, date_param, interval):
         """
         Функция получает свечу инструмента за дату(полные сутки) с указанным интервалом
 
-        :param dateParam: (str) Дата получения данных (2021-03-24)
+        :param date_param: (str) Дата получения данных (2021-03-24)
         """
+
         d1 = f'{date_param} 00:00:00'
         d2 = f'{date_param} 23:59:59'
 
-        return self.get_candles(figi, d1, d2, interval)
-
-    def figi_candles_by_date_to_file(self, figi, date_param, interval):
-        folder = f"{self.export_folder}/figis/{figi}"
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-
-        res = self.get_candles_by_date(figi, date_param, interval)
-
-        if len(res['list']) > 0:
-            figi_file = f"{folder}/{date_param}.txt"
-
-            if not os.path.isfile(figi_file):
-                with open(figi_file, 'w') as fp:
-                    json.dump(res['json'], fp)
-
-    def figi_from_files_to_mysql(self, folderName):
-        dbFlag = True
-
         try:
-            db = pymysql.connect(host=self.mysqlHost,
-                                 user=self.mySqlUser,
-                                 password=self.mySqlPassword,
-                                 database=self.mySqlDb)
+            result = self.get_candles(figi, d1, d2, interval)['list']
         except:
-            dbFlag = False
-            self.logger.error('Не удалось подключиться к БД')
+            result = None
 
-        if dbFlag:
-            filesList = os.scandir(folderName)
-            for figiFile in filesList:
-                if figiFile.is_file():
-                    query = f"select fileName from files_processing where fileName='{format_filename(figiFile.path)}'"
-                    res = mysql_execute(db, query, False, 'one')
-                    # print(res)
-                    if res == None:
-                        with open(figiFile.path, 'r') as j:
-                            jsonBody = json.load(j)
-                            candlesList = None
+        return result
 
-                            try:
-                                candlesList = jsonBody['payload']['candles']
-                            except:
-                                candlesList = []
 
-                            for candle in candlesList:
-                                t = candle['time'][:-4]
-                                query = f'INSERT INTO figis(o, c, h, l, v, time, intervalTime, figi) ' \
-                                        f'SELECT ' \
-                                        f"{candle['o']}, " \
-                                        f"{candle['c']}, " \
-                                        f"{candle['h']}, " \
-                                        f"{candle['l']}, " \
-                                        f"{candle['v']}, " \
-                                        f"'{t}', " \
-                                        f"'{candle['interval']}', " \
-                                        f"'{candle['figi']}' " \
-                                        f'FROM (SELECT 1) as dummytable ' \
-                                        f"WHERE NOT EXISTS (SELECT 1 FROM figis WHERE " \
-                                        f"figi='{candle['figi']}' and " \
-                                        f"intervalTime='{candle['interval']}' and " \
-                                        f"time='{t}'" \
-                                        f')'
-                                # print(query)
-                                mysql_execute(db, query, True, 'one')
-                                # self.logger.info(f"В БД добавлены свечи инструмента {candle['figi']} на дату {candle['time']}")
+    def figi_candles_by_date_to_mysql(self, figi, date_param, interval):
+        """
+        Функция добавляет свечи инструмента.
+        Свечи добавляются не безъусловно.
+        Прежде чем добавить свечи, функция пытается сравнить количество свечей на дату и интервал в отдельной таблице.
+        Если в этой таблице нет записи о количестве свечей инструмента на дату и интервалом.
 
-                            query = f"INSERT IGNORE INTO files_processing(fileName) VALUES('{format_filename(figiFile.path)}')"
-                            mysql_execute(db, query, True, 'one')
-                            self.logger.info(f"Файл {figiFile.path} записан в БД, как обработанный")
+        :figi: figi инструмента
+        :date_param: дата получения свечей
+        :interval: интервал(частота) отбора свечей
+        """
 
-                    os.remove(figiFile.path)
-                    self.logger.info(f'Удалён файл {figiFile.path}')
+        if self.mysql_db:
+            # Список свечей
+            date_candles = self.get_candles_by_date(figi, date_param, interval)
 
-    def figis_from_files_to_mysql(self):
-        folders = []
-        for folder in os.scandir(f'{self.exportFolder}/figis'):
-            folders.append(folder.path)
-            #print(f'{folder.path}')
-            #self.figi_from_files_to_mysql(folder.path)
+            # Количество свечей в результате
+            candles_count = len(date_candles)
 
-        p = Pool(100)
+            if candles_count > 0:
+                # Поиск количества свечей в таблице, которая логирует свечи на дату и интервал
+                query = f"select candles_count from candles_log where figi='{figi}' and dt='{date_param}' and i='{interval}'"
+                res = mysql_execute(self.db, query, False, 'one')
+
+                print(query)
+
+                candles_db_count = 0  # Количество записей в БД (res == None)
+                if res != None:
+                    #if len(res) == 1:
+                    candles_db_count = int(res[0])
+
+                print(f'candles_db_count: {candles_db_count}')
+
+                # Если количество свечей из rest не равно колиству свечей из БД
+                if candles_count != candles_db_count:
+                    for candle in date_candles:
+
+                        t = candle['time'][:-4]
+                        query = f'INSERT INTO candles(figi, i, o, c, h, l, v, t) ' \
+                                f'SELECT ' \
+                                f"'{candle['figi']}', " \
+                                f"'{candle['interval']}', " \
+                                f"{candle['o']}, " \
+                                f"{candle['c']}, " \
+                                f"{candle['h']}, " \
+                                f"{candle['l']}, " \
+                                f"{candle['v']}, " \
+                                f"'{t}' " \
+                                f'FROM (SELECT 1) as dummytable ' \
+                                f"WHERE NOT EXISTS (SELECT 1 FROM candles WHERE " \
+                                f"figi='{candle['figi']}' and " \
+                                f"i='{candle['interval']}' and " \
+                                f"t='{t}'" \
+                                f')'
+                        mysql_execute(self.db, query, True, 'one')
+
+                    # self.logger.info
+                    if candles_db_count == 0:
+                        query = f"insert into candles_log(figi, dt, i, candles_count) values('{figi}', '{date_param}', '{interval}', {candles_count})"
+                        mysql_execute(self.db, query, True, 'one')
+                        self.logger.info(f'В БД добавленно {candles_count} свечей')
+                    else:
+                        query = f"update candles_log set candles_count = {candles_count} where figi = '{figi}' and dt = '{date_param}' and i = '{interval}'"
+                        mysql_execute(self.db, query, True, 'one')
+                        self.logger.info(f'В БД дописано {candles_count - candles_db_count} свечей')
+
+
+
+
+    def figis_candles_by_date_to_mysql(self, date_param, interval):
+        """
+        Все свечи за дату с интервалом в БД
+        """
+
+        self.logger.info(f'Начато получение свечей всех инструментов на дату {date_param} c интервалом {interval}')
+
+        stocks = self.get_stocks()['list']
+
+        args = []
+
+
+        for stock in stocks:
+            figi = stock['figi']
+
+            l = []
+            args.append(l)
+            l.append(figi)
+            l.append(date_param)
+            l.append(interval)
+
+            #self.figi_candles_by_date_to_mysql(figi, date_param, interval)
+
+        p = Pool(1)
         with p:
-            p.map(self.figi_from_files_to_mysql, folders)
+            p.map(self.figi_candles_by_date_to_mysql, args)
             p.close()
             p.join()
 
-        """
-        dbFlag = True
-
-        try:
-            db = pymysql.connect(host=self.mysqlHost,
-                                 user=self.mySqlUser,
-                                 password=self.mySqlPassword,
-                                 database=self.mySqlDb)
-        except:
-            dbFlag = False
-            self.logger.error('Не удалось подключиться к БД')
-
-        if dbFlag:
-            self.logger.info('Удалось подключиться к БД')
-
-            for folder in os.scandir(f'{self.exportFolder}/figis'):
-                filesList = os.scandir(folder.path)
-                print(f'{folder.path}')
-                for figiFile in filesList:
-                    if figiFile.is_file():
-                        #print(figiFile.path)
-
-                        query = f"select fileName from files_processing where fileName='{figiFile.path}'"
-                        res = mysql_execute(db, query, False, 'one')
-                        #print(res)
-                        if res == None:
-                            with open(figiFile.path, 'r') as j:
-                                jsonBody = json.load(j)
-                                candlesList = None
-
-                                try:
-                                    candlesList = jsonBody['payload']['candles']
-                                except:
-                                    candlesList = []
-
-                                for candle in candlesList:
-                                    t = candle['time'][:-4]
-                                    query = f'INSERT INTO figis(o, c, h, l, v, time, intervalTime, figi) ' \
-                                            f'SELECT ' \
-                                            f"{candle['o']}, " \
-                                            f"{candle['c']}, " \
-                                            f"{candle['h']}, " \
-                                            f"{candle['l']}, " \
-                                            f"{candle['v']}, " \
-                                            f"'{t}', " \
-                                            f"'{candle['interval']}', " \
-                                            f"'{candle['figi']}' " \
-                                            f'FROM (SELECT 1) as dummytable ' \
-                                            f"WHERE NOT EXISTS (SELECT 1 FROM figis WHERE " \
-                                            f"figi='{candle['figi']}' and " \
-                                            f"intervalTime='{candle['interval']}' and " \
-                                            f"time='{t}'" \
-                                            f')'
-                                    #print(query)
-                                    mysql_execute(db, query, True, 'one')
-                                    #self.logger.info(f"В БД добавлены свечи инструмента {candle['figi']} на дату {candle['time']}")
-
-                                query = f"INSERT IGNORE INTO files_processing(fileName) VALUES('{format_filename(figiFile.path)}')"
-                                mysql_execute(db, query, True, 'one')
-                                self.logger.info(f"Файл {figiFile.path} записан в БД, как обработанный")
-
-                        os.remove(figiFile.path)
-                        self.logger.info(f'Удалён файл {figiFile.path}')
-        """
-
-
-if __name__ == "__main__":
-    try:
-        os.remove('log.txt')
-    except:
-        pass
-
-    invest = TinkoffInvest('conf.txt')
-
-    
-
-    #invest.stocks_to_file()
-    #invest.figi_candles_by_date_to_file('BBG00B0FS947', '2021-02-24', '1min')
-    #print(invest.get_dates_list())
-
-    #invest.stocks_to_mysql()
-
-    #invest.figis_from_files_to_mysql()
+        self.logger.info(f'Закончено получение свечей всех инструментов на дату {date_param} c интервалом {interval}')
