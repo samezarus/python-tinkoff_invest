@@ -5,7 +5,17 @@ import requests  # pip3 install requests
 import pymysql  # pip3 install PyMySQL
 from datetime import datetime, timedelta
 from pytz import timezone  # pip3 install pytz
-from multiprocessing import Pool
+from multiprocessing.dummy import Pool as ThreadPool
+
+
+# Инициализация логера
+logger = logging.getLogger('class_tinkoff_invest.py')
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler('log.txt', 'w', 'utf-8')
+formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(message)s]')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
+logger.info('Инициализация модуля class_tinkoff_invest.py')
 
 
 def dt_to_url_format(dt_str):
@@ -26,10 +36,12 @@ def dt_to_url_format(dt_str):
 
 
 def get_data(url, headers):
+    result = None
+
     try:
         result = requests.get(url=url, headers=headers)
     except:
-        result = None
+        logger.error(f'Не удалось получить данные из рест по URL {url}')
 
     return result
 
@@ -44,38 +56,33 @@ def mysql_execute(db_connection, query, commit_flag, result_type):
     :resultType: Тип результата (one - первую строку результата, all - весь результат)
     """
 
+    result = None
+
+    error_flag = False
+
     if db_connection:
         dbCursor = db_connection.cursor()
-        dbCursor.execute(query)
+        try:
+            dbCursor.execute(query)
+        except:
+            error_flag = True
+            logger.error(f'Не удалось выполнить запрос: {query}')
 
-        if commit_flag == True:
-            db_connection.commit()
+        if not error_flag:
+            if commit_flag == True:
+                db_connection.commit()
 
-        if result_type == 'one':
-            return dbCursor.fetchone()
+            if result_type == 'one':
+                result = dbCursor.fetchone()
 
-        if result_type == 'all':
-            return dbCursor.fetchall()
+            if result_type == 'all':
+                result = dbCursor.fetchall()
 
-
-def format_filename(file_name):
-    l = file_name.split('/')
-    s = f'{l[len(l) -2]}_{l[len(l) -1]}'[:-4]
-
-    return s
+    return result
 
 
 class TinkoffInvest:
     def __init__(self, conf_file_name):
-        # Инициализация логера
-        self.logger = logging.getLogger('TinkofInvest')
-        self.logger.setLevel(logging.INFO)
-        fh = logging.FileHandler('log.txt')
-        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(message)s]')
-        fh.setFormatter(formatter)
-        self.logger.addHandler(fh)
-        self.logger.info('Инициализация приложения')
-
         try:
             conf_file = open(conf_file_name, 'r')
             conf_params = json.load(conf_file)
@@ -91,9 +98,9 @@ class TinkoffInvest:
             self.mysql_user = conf_params['mysql_user']                   #
             self.mysql_password = conf_params['mysql_password']           #
 
-            self.logger.info('Параметры приложения из конф. файла загружены')
+            logger.info('Параметры приложения из конф. файла загружены')
         except:
-            self.logger.error('Параметры приложения из конф. файла не загружены')
+            logger.error('Параметры приложения из конф. файла не загружены')
 
         try:
             self.db = pymysql.connect(host=self.mysql_host,
@@ -116,7 +123,6 @@ class TinkoffInvest:
 
         return result
 
-
     def get_stocks(self):
         result = {
             'json': '',  # Чистый json
@@ -133,14 +139,13 @@ class TinkoffInvest:
                 result['json'] = j_str
                 result['list'] = j_str['payload']['instruments']
 
-                self.logger.info('Список инструментов загружен из rest')
+                logger.info('Список инструментов загружен из rest')
                 return result
             else:
                 return result
         except:
-            self.logger.error('Список инструментов не загружен из rest')
+            logger.error('Список инструментов не загружен из rest')
             return result
-
 
     def stocks_to_mysql(self):
         res = self.get_stocks()
@@ -172,7 +177,6 @@ class TinkoffInvest:
 
                     mysql_execute(self.db, query, True, 'one')
 
-
     def get_portfolio(self):
         result = {
             'json': '',  # Чистый json
@@ -182,7 +186,7 @@ class TinkoffInvest:
         url = f'{self.rest_url}portfolio'
         try:
             res = get_data(url, self.headers)
-            self.logger.info('Список инструментов портфолио загружен из rest')
+            logger.info('Список инструментов портфолио загружен из rest')
 
             if res.status_code == 200:
                 jStr = json.loads(res.content)
@@ -193,9 +197,8 @@ class TinkoffInvest:
             else:
                 return result
         except:
-            self.logger.error('Список инструментов портфолио не загружен из rest')
+            logger.error('Список инструментов портфолио не загружен из rest')
             return result
-
 
     def get_candles(self, figi, d1, d2, interval):
         """
@@ -217,7 +220,7 @@ class TinkoffInvest:
 
         try:
             res = get_data(url, self.headers)
-            self.logger.info(f'Свеча {figi} c {d1} по дату {d2} с интервалом {interval} получена из rest')
+            #logger.info(f'Свеча {figi} c {d1} по дату {d2} с интервалом {interval} получена из rest')
 
             if res.status_code == 200:
                 j_str = json.loads(res.content)
@@ -228,10 +231,9 @@ class TinkoffInvest:
             else:
                 return result
         except:
-            self.logger.error(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} не загружена из rest')
+            logger.error(f'Свеча инструмента {figi} c {d1} по дату {d2} с интервалом {interval} не загружена из rest')
 
         return result
-
 
     def get_candles_by_date(self, figi, date_param, interval):
         """
@@ -249,7 +251,6 @@ class TinkoffInvest:
             result = None
 
         return result
-
 
     def figi_candles_by_date_to_mysql(self, figi, date_param, interval):
         """
@@ -271,18 +272,18 @@ class TinkoffInvest:
             candles_count = len(date_candles)
 
             if candles_count > 0:
+                db = pymysql.connect(host=self.mysql_host,
+                                     user=self.mysql_user,
+                                     password=self.mysql_password,
+                                     database=self.mysql_db)
+
                 # Поиск количества свечей в таблице, которая логирует свечи на дату и интервал
                 query = f"select candles_count from candles_log where figi='{figi}' and dt='{date_param}' and i='{interval}'"
-                res = mysql_execute(self.db, query, False, 'one')
-
-                print(query)
+                res = mysql_execute(db, query, False, 'one')
 
                 candles_db_count = 0  # Количество записей в БД (res == None)
                 if res != None:
-                    #if len(res) == 1:
                     candles_db_count = int(res[0])
-
-                print(f'candles_db_count: {candles_db_count}')
 
                 # Если количество свечей из rest не равно колиству свечей из БД
                 if candles_count != candles_db_count:
@@ -305,19 +306,24 @@ class TinkoffInvest:
                                 f"i='{candle['interval']}' and " \
                                 f"t='{t}'" \
                                 f')'
-                        mysql_execute(self.db, query, True, 'one')
+                        mysql_execute(db, query, True, 'one')
 
-                    # self.logger.info
+                    #
+                    msg = ''
                     if candles_db_count == 0:
                         query = f"insert into candles_log(figi, dt, i, candles_count) values('{figi}', '{date_param}', '{interval}', {candles_count})"
-                        mysql_execute(self.db, query, True, 'one')
-                        self.logger.info(f'В БД добавленно {candles_count} свечей')
+                        mysql_execute(db, query, True, 'one')
+
+                        msg = f'В БД добавленно {candles_count} свечей инструмента {figi} на дату {date_param}'
+                        logger.info(msg)
+                        print(msg)
                     else:
                         query = f"update candles_log set candles_count = {candles_count} where figi = '{figi}' and dt = '{date_param}' and i = '{interval}'"
-                        mysql_execute(self.db, query, True, 'one')
-                        self.logger.info(f'В БД дописано {candles_count - candles_db_count} свечей')
+                        mysql_execute(db, query, True, 'one')
 
-
+                        msg = f'В БД дописано {candles_count - candles_db_count} свечей инструмента {figi} на дату {date_param}'
+                        logger.info(msg)
+                        print(msg)
 
 
     def figis_candles_by_date_to_mysql(self, date_param, interval):
@@ -325,28 +331,35 @@ class TinkoffInvest:
         Все свечи за дату с интервалом в БД
         """
 
-        self.logger.info(f'Начато получение свечей всех инструментов на дату {date_param} c интервалом {interval}')
+        logger.info(f'Начато получение свечей всех инструментов на дату {date_param} c интервалом {interval}')
 
         stocks = self.get_stocks()['list']
 
-        args = []
-
+        figis_list = []
+        dts_list = []
+        intervals_list = []
 
         for stock in stocks:
             figi = stock['figi']
 
-            l = []
-            args.append(l)
-            l.append(figi)
-            l.append(date_param)
-            l.append(interval)
+            figis_list.append(figi)
+            dts_list.append(date_param)
+            intervals_list.append(interval)
 
-            #self.figi_candles_by_date_to_mysql(figi, date_param, interval)
+        p = ThreadPool(6)
+        p.starmap(self.figi_candles_by_date_to_mysql, zip(figis_list, dts_list, intervals_list))
+        p.close()
+        p.join()
 
-        p = Pool(1)
-        with p:
-            p.map(self.figi_candles_by_date_to_mysql, args)
-            p.close()
-            p.join()
+        logger.info(f'Закончено получение свечей всех инструментов на дату {date_param} c интервалом {interval}')
 
-        self.logger.info(f'Закончено получение свечей всех инструментов на дату {date_param} c интервалом {interval}')
+    def figis_candles_history_to_mysql(self, interval):
+        """
+
+        """
+        dates = self.get_dates_list()
+
+        for item in dates:
+            print(f'{item} -> {self.candles_end_date}')
+
+            self.figis_candles_by_date_to_mysql(item, interval)
