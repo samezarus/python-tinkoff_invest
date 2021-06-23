@@ -5,7 +5,7 @@ import requests  # pip3 install requests
 import pymysql  # pip3 install PyMySQL
 from datetime import datetime, timedelta
 from pytz import timezone  # pip3 install pytz
-from multiprocessing.dummy import Pool as ThreadPool
+from multiprocessing.dummy import Pool
 
 
 # Инициализация логера
@@ -18,7 +18,7 @@ logger.addHandler(fh)
 logger.info('Инициализация модуля class_tinkoff_invest.py')
 
 
-def dt_to_url_format(dt_str):
+def dt_to_url_format(dt_str: str):
     """
     Функция для корректного форматирования ДатыВремя в URL
 
@@ -35,7 +35,7 @@ def dt_to_url_format(dt_str):
     return result
 
 
-def get_data(url, headers):
+def get_data(url: str, headers):
     result = None
 
     try:
@@ -46,7 +46,7 @@ def get_data(url, headers):
     return result
 
 
-def mysql_execute(db_connection, query, commit_flag, result_type):
+def mysql_execute(db_connection, query: str, commit_flag: bool, result_type: str):
     """
     Функция для выполнния любых типов запросов к MySQL
 
@@ -82,7 +82,7 @@ def mysql_execute(db_connection, query, commit_flag, result_type):
 
 
 class TinkoffInvest:
-    def __init__(self, conf_file_name):
+    def __init__(self, conf_file_name: str):
         try:
             conf_file = open(conf_file_name, 'r')
             conf_params = json.load(conf_file)
@@ -200,7 +200,7 @@ class TinkoffInvest:
             logger.error('Список инструментов портфолио не загружен из rest')
             return result
 
-    def get_candles(self, figi, d1, d2, interval):
+    def get_candles(self, figi: str, d1: str, d2: str, interval: str):
         """
         Функция получает свечу инструмента за промежуток времени с указанным интервалом
 
@@ -235,9 +235,9 @@ class TinkoffInvest:
 
         return result
 
-    def get_candles_by_date(self, figi, date_param, interval):
+    def get_candles_by_date(self, figi: str, date_param: str, interval: str):
         """
-        Функция получает свечу инструмента за дату(полные сутки) с указанным интервалом
+        Функция получает свечу инструмента за дату(полные сутки) с указанным интервалома
 
         :param date_param: (str) Дата получения данных (2021-03-24)
         """
@@ -252,7 +252,7 @@ class TinkoffInvest:
 
         return result
 
-    def figi_candles_by_date_to_mysql(self, figi, date_param, interval):
+    def figi_candles_by_date_to_mysql(self, params):
         """
         Функция добавляет свечи инструмента.
         Свечи добавляются не безъусловно.
@@ -265,6 +265,10 @@ class TinkoffInvest:
         """
 
         if self.mysql_db:
+            figi = params['figi']
+            date_param = params['date_param']
+            interval = params['interval']
+
             # Список свечей
             date_candles = self.get_candles_by_date(figi, date_param, interval)
 
@@ -325,8 +329,9 @@ class TinkoffInvest:
                         logger.info(msg)
                         print(msg)
 
+                db.close()
 
-    def figis_candles_by_date_to_mysql(self, date_param, interval):
+    def figis_candles_by_date_to_mysql(self, date_param: str, interval: str):
         """
         Все свечи за дату с интервалом в БД
         """
@@ -335,31 +340,44 @@ class TinkoffInvest:
 
         stocks = self.get_stocks()['list']
 
-        figis_list = []
-        dts_list = []
-        intervals_list = []
+        l = []
 
         for stock in stocks:
-            figi = stock['figi']
+            param = {
+                'figi': stock['figi'],
+                'date_param': date_param,
+                'interval': interval
+            }
 
-            figis_list.append(figi)
-            dts_list.append(date_param)
-            intervals_list.append(interval)
+            l.append(param)
 
-        p = ThreadPool(6)
-        p.starmap(self.figi_candles_by_date_to_mysql, zip(figis_list, dts_list, intervals_list))
-        p.close()
-        p.join()
+        p = Pool(processes=6)
+        with p:
+            p.map(self.figi_candles_by_date_to_mysql, l)
+            p.close()
+            p.join()
 
         logger.info(f'Закончено получение свечей всех инструментов на дату {date_param} c интервалом {interval}')
 
-    def figis_candles_history_to_mysql(self, interval):
+    def figis_candles_history_to_mysql(self, interval: str):
         """
 
         """
-        dates = self.get_dates_list()
+        dates = self.get_dates_list()  # Список дат
+        stocks = self.get_stocks()['list']  # Список инструментов
+        l = []
 
-        for item in dates:
-            print(f'{item} -> {self.candles_end_date}')
+        for date_param in dates:
+            for stock in stocks:
+                param = {
+                    'figi': stock['figi'],
+                    'date_param': date_param,
+                    'interval': interval
+                }
+                l.append(param)
 
-            self.figis_candles_by_date_to_mysql(item, interval)
+        p = Pool(processes=6)
+        with p:
+            p.map(self.figi_candles_by_date_to_mysql, l)
+            p.close()
+            p.join()
