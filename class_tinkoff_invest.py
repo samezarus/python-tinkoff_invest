@@ -111,12 +111,13 @@ class TinkoffInvest:
     def get_dates_list(self):
         result = []
 
-        now = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
-        date_param = now
+        date_param = datetime.now(tz=timezone('Europe/Moscow')) - timedelta(days=1)
 
         while str(date_param)[0:10] != self.candles_end_date:
-            d = str(date_param)[0:10]
-            result.append(d)
+            if date_param.strftime("%A") != 'Saturday' and date_param.strftime("%A") != 'Sunday':
+                d = str(date_param)[0:10]
+                result.append(d)
+
             date_param -= timedelta(days=1)
 
         return result
@@ -393,8 +394,7 @@ class TinkoffInvest:
                 }
                 params.append(param)
 
-        p = Pool(processes=6)
-        with p:
-            p.map(self.figi_candles_by_date_to_mysql, params)
-            p.close()
-            p.join()
+        p = Pool(processes=5)
+        p.map(self.figi_candles_by_date_to_mysql, params)
+        p.close()
+        p.join()
