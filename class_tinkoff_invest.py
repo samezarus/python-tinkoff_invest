@@ -264,7 +264,7 @@ class TinkoffInvest:
 
         return result
 
-    def figi_candles_by_date_to_mysql(self, params):
+    def figi_candles_by_date_to_mysql(self, params: {}):
         """
         Функция добавляет свечи инструмента.
         Свечи добавляются не безъусловно.
@@ -275,79 +275,81 @@ class TinkoffInvest:
         :date_param: дата получения свечей
         :interval: интервал(частота) отбора свечей
         """
+        try:
+            if self.mysql_db:
+                figi = params['figi']
+                date_param = params['date_param']
+                interval = params['interval']
 
-        if self.mysql_db:
-            figi = params['figi']
-            date_param = params['date_param']
-            interval = params['interval']
+                # Список свечей
+                date_candles = self.get_candles_by_date(figi, date_param, interval)
 
-            # Список свечей
-            date_candles = self.get_candles_by_date(figi, date_param, interval)
+                # Количество свечей в результате
+                candles_count = len(date_candles)
 
-            # Количество свечей в результате
-            candles_count = len(date_candles)
+                if candles_count > 0:
+                    db = pymysql.connect(host=self.mysql_host,
+                                         user=self.mysql_user,
+                                         password=self.mysql_password,
+                                         database=self.mysql_db)
 
-            if candles_count > 0:
-                db = pymysql.connect(host=self.mysql_host,
-                                     user=self.mysql_user,
-                                     password=self.mysql_password,
-                                     database=self.mysql_db)
+                    # Поиск количества свечей в таблице, которая логирует свечи на дату и интервал
+                    query = f"select candles_count from candles_log where figi='{figi}' and dt='{date_param}' and " \
+                            f"i='{interval}'"
 
-                # Поиск количества свечей в таблице, которая логирует свечи на дату и интервал
-                query = f"select candles_count from candles_log where figi='{figi}' and dt='{date_param}' and " \
-                        f"i='{interval}'"
+                    res = mysql_execute(db, query, False, 'one')
 
-                res = mysql_execute(db, query, False, 'one')
+                    candles_db_count = 0  # Количество записей в БД (res == None)
+                    if res is not None:
+                        candles_db_count = int(res[0])
 
-                candles_db_count = 0  # Количество записей в БД (res == None)
-                if res is not None:
-                    candles_db_count = int(res[0])
+                    # Если количество свечей из rest не равно колиству свечей из БД
+                    if candles_count != candles_db_count:
+                        for candle in date_candles:
+                            t = candle['time'][:-4]
+                            query = f'INSERT INTO candles(figi, i, o, c, h, l, v, t) ' \
+                                    f'SELECT ' \
+                                    f"'{candle['figi']}', " \
+                                    f"'{candle['interval']}', " \
+                                    f"{candle['o']}, " \
+                                    f"{candle['c']}, " \
+                                    f"{candle['h']}, " \
+                                    f"{candle['l']}, " \
+                                    f"{candle['v']}, " \
+                                    f"'{t}' " \
+                                    f'FROM (SELECT 1) as dummytable ' \
+                                    f"WHERE NOT EXISTS (SELECT 1 FROM candles WHERE " \
+                                    f"figi='{candle['figi']}' and " \
+                                    f"i='{candle['interval']}' and " \
+                                    f"t='{t}'" \
+                                    f')'
+                            mysql_execute(db, query, True, 'one')
 
-                # Если количество свечей из rest не равно колиству свечей из БД
-                if candles_count != candles_db_count:
-                    for candle in date_candles:
-                        t = candle['time'][:-4]
-                        query = f'INSERT INTO candles(figi, i, o, c, h, l, v, t) ' \
-                                f'SELECT ' \
-                                f"'{candle['figi']}', " \
-                                f"'{candle['interval']}', " \
-                                f"{candle['o']}, " \
-                                f"{candle['c']}, " \
-                                f"{candle['h']}, " \
-                                f"{candle['l']}, " \
-                                f"{candle['v']}, " \
-                                f"'{t}' " \
-                                f'FROM (SELECT 1) as dummytable ' \
-                                f"WHERE NOT EXISTS (SELECT 1 FROM candles WHERE " \
-                                f"figi='{candle['figi']}' and " \
-                                f"i='{candle['interval']}' and " \
-                                f"t='{t}'" \
-                                f')'
-                        mysql_execute(db, query, True, 'one')
+                        #
+                        if candles_db_count == 0:
+                            query = f"insert into candles_log(figi, dt, i, candles_count) " \
+                                    f"values('{figi}', '{date_param}', '{interval}', {candles_count})"
 
-                    #
-                    if candles_db_count == 0:
-                        query = f"insert into candles_log(figi, dt, i, candles_count) " \
-                                f"values('{figi}', '{date_param}', '{interval}', {candles_count})"
+                            mysql_execute(db, query, True, 'one')
 
-                        mysql_execute(db, query, True, 'one')
+                            msg = f'В БД добавленно {candles_count} свечей инструмента {figi} на дату {date_param}'
+                            logger.info(msg)
+                            print(msg)
+                        else:
+                            query = f"update candles_log set candles_count = {candles_count} where figi = " \
+                                    f"'{figi}' and dt = '{date_param}' and i = '{interval}'"
 
-                        msg = f'В БД добавленно {candles_count} свечей инструмента {figi} на дату {date_param}'
-                        logger.info(msg)
-                        print(msg)
-                    else:
-                        query = f"update candles_log set candles_count = {candles_count} where figi = " \
-                                f"'{figi}' and dt = '{date_param}' and i = '{interval}'"
+                            mysql_execute(db, query, True, 'one')
 
-                        mysql_execute(db, query, True, 'one')
+                            msg = f'В БД дописано {candles_count - candles_db_count} свечей инструмента {figi} ' \
+                                  f'на дату {date_param}'
 
-                        msg = f'В БД дописано {candles_count - candles_db_count} свечей инструмента {figi} ' \
-                              f'на дату {date_param}'
+                            logger.info(msg)
+                            print(msg)
 
-                        logger.info(msg)
-                        print(msg)
-
-                db.close()
+                    db.close()
+        except:
+            logger.error(f'Ошибка записи свечи в БД инструмента {figi} на дату {date_param} c интервалом {interval}')
 
     def figis_candles_by_date_to_mysql(self, date_param: str, interval: str):
         """
